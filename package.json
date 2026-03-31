@@ -1,0 +1,16 @@
+{
+  "name": "berthax-inspection-system",
+  "version": "2.1.0",
+  "description": "Sistema de Inspeção de Qualidade para Berthax Surgical LTDA",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server . -p 3000",
+    "dev": "npx http-server . -p 3000 -o"
+  },
+  "keywords": ["inspeção", "qualidade", "react", "supabase"],
+  "author": "Josias Nogueira",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

@@ -1,0 +1,2525 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Berthax Surgical LTDA – Inspeção de Qualidade</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter','Segoe UI',sans-serif}
+input,select,textarea{outline:none}
+button{cursor:pointer}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#0D0F1C}
+::-webkit-scrollbar-thumb{background:#2D2F4A;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#4B4E78}
+.user-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap}
+.online-indicator{width:8px;height:8px;border-radius:50%;background:#10b981;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}20%{opacity:0.5}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useReducer,useRef,useEffect}=React;
+
+// Configuração Supabase
+const SUPABASE_URL="https://xgnsborqhnueqsottksq.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnbnNib3JxaG51ZXFzb3R0a3NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0ODY2MjEsImV4cCI6MjA5MDA2MjYyMX0.1URY0IsmkM4yedB0ar3GbqseVD_wwMG6tHheMdn0qjA";
+const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// SE A TABELA "usuarios_conectados" NÃO EXISTIR, CRIE NO SUPABASE SQL EDITOR:
+// CREATE TABLE usuarios_conectados (
+//   id SERIAL PRIMARY KEY,
+//   nome TEXT NOT NULL,
+//   timestamp TIMESTAMPTZ DEFAULT NOW(),
+//   computador TEXT
+// );
+// ALTER TABLE usuarios_conectados ENABLE ROW LEVEL SECURITY;
+// CREATE POLICY "Allow all" ON usuarios_conectados FOR ALL USING (true);
+
+// SE A TABELA JÁ EXISTIR COM COLUNA "cargo" NOT NULL, ALTERE NO SUPABASE SQL EDITOR:
+// ALTER TABLE usuarios_conectados DROP COLUMN cargo;
+// OU PARA TORNAR NULLABLE: ALTER TABLE usuarios_conectados ALTER COLUMN cargo DROP NOT NULL;
+
+const ENABLE_COLETA = false; // feature flag
+const TECHNICOS = ["Josias","Juan","Alex","Reginaldo","Victor"];
+
+// Componente de Login
+function LoginScreen({onLogin,th}){
+  const [nome,setNome]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  
+  const handleLogin=async()=>{
+    if(nome.trim()===""){
+      setError("Digite seu nome completo");
+      return;
+    }
+    
+    setLoading(true);
+    setError("");
+    
+    try{
+      console.log("Tentando conectar ao Supabase...");
+      const {data,error:err}=await supabase
+        .from("usuarios_conectados")
+        .insert([{nome,timestamp:new Date().toISOString(),computador:navigator.platform}])
+        .select();
+      
+      if(err){
+        console.error("Erro no Supabase insert:", err);
+        setError(`Erro ao conectar ao servidor: ${err.message || err.details || 'Verifique a tabela e permissões.'}`);
+        setLoading(false);
+        return;
+      }
+      
+      console.log("Login bem-sucedido:", data);
+      onLogin({nome,userId:data[0]?.id});
+    }catch(e){
+      console.error("Erro de rede/conexão:", e);
+      setError("Erro na conexão: Verifique sua internet ou configurações do Supabase.");
+      setLoading(false);
+    }
+  };
+  
+  return(
+    <div style={{position:"fixed",inset:0,background:th.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>
+      <div style={{width:"100%",maxWidth:420,background:th.surface,borderRadius:16,padding:40,boxShadow:"0 20px 60px rgba(0,0,0,0.5)",border:`1px solid ${th.border}`}}>
+        <div style={{textAlign:"center",marginBottom:40}}>
+          <div style={{fontSize:48,marginBottom:12}}>🔐</div>
+          <h1 style={{fontSize:28,fontWeight:900,color:th.text,marginBottom:8}}>BERTHAX SURGICAL LTDA</h1>
+          <p style={{fontSize:14,color:th.textMuted,marginBottom:8}}>Sistema de Inspeção de Qualidade</p>
+          <p style={{fontSize:13,color:th.textSub}}>Faça login com seu nome e cargo</p>
+        </div>
+        
+        {error&&<div style={{background:"#dc262630",border:"1px solid #dc2626",borderRadius:8,padding:12,marginBottom:16,color:"#dc2626",fontSize:12,fontWeight:600}}>{error}</div>}
+        
+        <div style={{marginBottom:20}}>
+          <label style={{display:"block",fontSize:13,fontWeight:600,color:th.text,marginBottom:8}}>Nome Completo</label>
+          <input
+            type="text"
+            placeholder="Seu nome aqui"
+            value={nome}
+            onChange={(e)=>setNome(e.target.value)}
+            onKeyPress={(e)=>e.key==="Enter"&&handleLogin()}
+            disabled={loading}
+            style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:14,fontFamily:"inherit",opacity:loading?0.6:1}}
+          />
+        </div>
+        
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          style={{width:"100%",padding:14,borderRadius:10,border:"none",background:loading?"#999":"linear-gradient(135deg,#F47B20,#FF9A45)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"not-allowed":"pointer",boxShadow:"0 4px 12px rgba(244,123,32,0.35)",transition:"all 0.3s",opacity:loading?0.7:1}}
+        >
+          {loading?"Conectando...":"🔓 Entrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Componente de Usuários Conectados
+function UsuariosConectados({usuariosOnline,th}){
+  if(usuariosOnline.length===0) return null;
+  
+  return(
+    <div style={{background:th.surface2,border:`1px solid ${th.border}`,borderRadius:10,padding:12,marginBottom:16,marginLeft:20,marginRight:20}}>
+      <div style={{fontSize:12,fontWeight:700,color:th.textMuted,marginBottom:8}}>👥 CONECTADOS ({usuariosOnline.length})</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+        {usuariosOnline.map((u,i)=>(
+          <div key={i} className="user-badge" style={{background:th.surface,border:`1px solid ${th.border2}`,color:th.text}}>
+            <span className="online-indicator"></span>
+            <span>{u.nome}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function emptyOS(){return{id:genId(),os:"",cliente:"",data:new Date().toISOString().slice(0,10),dataInspecao:new Date().toISOString().slice(0,10),tecnico:[],observacoes:"",quantidadeTotal:"",totalNaoConformidades:"",okSemNC:false,naoConformidades:[],status:"conforme",createdAt:Date.now()};}
+function emptyNC(){return{id:genId(),tipo:"",descricao:"",severidade:"baixa",foto:null,responsaveis:[]};}
+
+const SEV_COLOR={baixa:"#16a34a",media:"#d97706",alta:"#dc2626"};
+const SEV_LABEL_MAP={
+  pt:{baixa:"Baixa",media:"Média",alta:"Alta"},
+  en:{baixa:"Low",media:"Medium",alta:"High"},
+  es:{baixa:"Baja",media:"Media",alta:"Alta"},
+};
+const THEMES={
+  dark:{
+    bg:"#1A1A1A",
+    surface:"#242424",
+    surface2:"#2E2E2E",
+    border:"#3A3A3A",
+    border2:"#484848",
+    text:"#F5F5F5",
+    textMuted:"#888888",
+    textSub:"#AAAAAA",
+    accent:"#F47B20",
+    accentBtn:"#F47B20",
+    header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)",
+  },
+  light:{
+    bg:"#F5F5F5",
+    surface:"#FFFFFF",
+    surface2:"#F0F0F0",
+    border:"#E0E0E0",
+    border2:"#CCCCCC",
+    text:"#1A1A1A",
+    textMuted:"#888888",
+    textSub:"#555555",
+    accent:"#F47B20",
+    accentBtn:"#F47B20",
+    header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)",
+  },
+};
+const T={
+  pt:{appName:"BERTHAX SURGICAL LTDA",appSub:"Sistema de Inspeção de Qualidade",dashboard:"📊 Dashboard",history:"📋 Histórico",newOS:"+ Nova Inspeção",totalOS:"Total de OS",totalPecas:"Total de Peças Inspecionadas",totalNCs:"Total de Não Conformidades",conformes:"Conformes",naoConformes:"Não Conformes",taxaConf:"Taxa Conformidade",taxaGeral:"Taxa de Conformidade Geral",ultimasInsp:"Últimas Inspeções",nenhumaOS:"Nenhuma OS cadastrada ainda.",search:"Buscar por OS, cliente ou técnico...",all:"Todos",conforme:"Conforme",naoConforme:"Não Conforme",editOS:"✏️ Editar OS",newOSTitle:"➕ Nova OS",numOS:"Número da OS",cliente:"Cliente",tecnico:"Técnico Responsável",dataAbertura:"Data de Abertura",dataInsp:"📅 Data da Inspeção",itens:"📦 Itens Inspecionados",qtdTotal:"Quantidade Total de Itens Inspecionados",tickOK:"Sem NC – Marcar OK",okConforme:"OK – Conforme",semNCSuffix:"Nenhuma não conformidade encontrada. OS marcada como Conforme.",obs:"📝 Observações Gerais",obsPlaceholder:"Registre observações gerais sobre a inspeção...",ncs:"⚠️ Não Conformidades",addNC:"+ NC",nenhumaNCS:"Nenhuma não conformidade registrada.",tipoNC:"Tipo de NC",descNC:"Descrição da não conformidade...",anexarFoto:"Anexar Foto",trocarFoto:"Trocar Foto",salvar:"💾 Salvar OS",cancelar:"Cancelar",exportPDF:"📄 Exportar PDF",enviarEmail:"✉️ Enviar E-mail",editar:"✏️ Editar",voltar:"← Voltar",pdf:"📄 PDF",email:"✉️ E-mail",excluir:"Excluir",abertura:"Abertura:",emailTitle:"✉️ Enviar Relatório por E-mail",comoFunciona:"ℹ️ Como funciona:",passo1:"1. Clique em Enviar — o PDF abrirá para salvar.",passo2:"2. Seu app de e-mail abrirá com destinatário e assunto preenchidos.",passo3:"3. Anexe o PDF salvo e clique em enviar.",emailDest:"E-mail do destinatário",emailPlaceholder:"exemplo@email.com",enviar:"✉️ Enviar",settings:"⚙️ Configurações",language:"Idioma",theme:"Tema",dark:"🌙 Escuro",light:"☀️ Claro",close:"Fechar",emailPadrao:"E-mail padrão (opcional)",saveSettings:"Salvar Configurações",nenhumaEncontrada:"Nenhuma OS encontrada.",dataStorage:"💾 Armazenamento de Dados",saveJSON:"💾 Salvar JSON",loadJSON:"📂 Carregar JSON",jsonFilename:"Nome do arquivo ao salvar",savedOK:"✅ Dados salvos com sucesso!",loadedOK:"✅ Dados carregados!",loadError:"❌ Erro ao carregar o arquivo.",autoSave:"Salvar automaticamente ao modificar dados",noData:"Nenhum dado para salvar.",storageInfo:"Os dados são salvos como arquivo JSON no seu computador. Guarde o arquivo em local seguro e carregue-o sempre que abrir o app.",qtd:"Qtd",importXLS:"📊 Importar Excel",importXLSTitle:"📊 Importar Lista de Inspeções (Excel)",importXLSInfo:"Cada linha da planilha vira uma nova OS no sistema.",importXLSCols:"Colunas aceitas:",importXLSDrop:"Arraste o arquivo aqui ou clique para selecionar",importXLSBtn:"Selecionar .xlsx / .csv",importXLSPreview:"Pré-visualização",importXLSImport:"✅ Importar",importXLSSkip:"Ignorar duplicados (mesmo Nº OS)",importedOK:"✅ {n} OS importadas com sucesso!",importError:"❌ Erro ao ler o arquivo.",downloadTemplate:"⬇️ Baixar Modelo Excel",groupByMonth:"Agrupar por Mês",expandAll:"Expandir Tudo",collapseAll:"Recolher Tudo"},
+  en:{appName:"BERTHAX SURGICAL LTDA",appSub:"Quality Inspection System",dashboard:"📊 Dashboard",history:"📋 History",newOS:"+ New WO",totalOS:"Total WOs",totalPecas:"Total Inspected Pieces",totalNCs:"Total Non-Conformities",conformes:"Conforming",naoConformes:"Non-Conforming",taxaConf:"Conformance Rate",taxaGeral:"Overall Conformance Rate",ultimasInsp:"Latest Inspections",nenhumaOS:"No work orders yet.",search:"Search by WO, client or technician...",all:"All",conforme:"Conforming",naoConforme:"Non-Conforming",editOS:"✏️ Edit WO",newOSTitle:"➕ New WO",numOS:"Work Order Number",cliente:"Client",tecnico:"Responsible Technician",dataAbertura:"Opening Date",dataInsp:"📅 Inspection Date",itens:"📦 Inspected Items",qtdTotal:"Total Inspected Items",tickOK:"No NC – Mark OK",okConforme:"OK – Conforming",semNCSuffix:"No non-conformities found. WO marked as Conforming.",obs:"📝 General Observations",obsPlaceholder:"Record general observations...",ncs:"⚠️ Non-Conformities",addNC:"+ NC",nenhumaNCS:"No non-conformities recorded.",tipoNC:"NC Type",descNC:"Non-conformity description...",anexarFoto:"Attach Photo",trocarFoto:"Change Photo",salvar:"💾 Save WO",cancelar:"Cancel",exportPDF:"📄 Export PDF",enviarEmail:"✉️ Send Email",editar:"✏️ Edit",voltar:"← Back",pdf:"📄 PDF",email:"✉️ Email",excluir:"Delete",abertura:"Opened:",emailTitle:"✉️ Send Report by Email",comoFunciona:"ℹ️ How it works:",passo1:"1. Click Send — PDF will open to save.",passo2:"2. Your email app will open prefilled.",passo3:"3. Attach the PDF and send.",emailDest:"Recipient email",emailPlaceholder:"example@email.com",enviar:"✉️ Send",settings:"⚙️ Settings",language:"Language",theme:"Theme",dark:"🌙 Dark",light:"☀️ Light",close:"Close",emailPadrao:"Default email (optional)",saveSettings:"Save Settings",nenhumaEncontrada:"No work orders found.",dataStorage:"💾 Data Storage",saveJSON:"💾 Save JSON",loadJSON:"📂 Load JSON",jsonFilename:"Filename when saving",savedOK:"✅ Data saved!",loadedOK:"✅ Data loaded!",loadError:"❌ Error loading file.",autoSave:"Auto-save when data changes",noData:"No data to save.",storageInfo:"Data is saved as a JSON file on your computer.",qtd:"Qty",importXLS:"📊 Import Excel",importXLSTitle:"📊 Import Inspection List (Excel)",importXLSInfo:"Each spreadsheet row becomes a new WO in the system.",importXLSCols:"Accepted columns:",importXLSDrop:"Drag file here or click to select",importXLSBtn:"Select .xlsx / .csv",importXLSPreview:"Preview",importXLSImport:"✅ Import",importXLSSkip:"Skip duplicates (same WO number)",importedOK:"✅ {n} WOs imported!",importError:"❌ Error reading file.",downloadTemplate:"⬇️ Download Excel Template",groupByMonth:"Group by Month",expandAll:"Expand All",collapseAll:"Collapse All"},
+  es:{appName:"BERTHAX SURGICAL LTDA",appSub:"Sistema de Inspección de Calidad",dashboard:"📊 Dashboard",history:"📋 Historial",newOS:"+ Nueva OT",totalOS:"Total OTs",totalPecas:"Total Piezas Inspeccionadas",totalNCs:"Total No Conformidades",conformes:"Conformes",naoConformes:"No Conformes",taxaConf:"Tasa Conformidad",taxaGeral:"Tasa de Conformidad General",ultimasInsp:"Últimas Inspecciones",nenhumaOS:"Ninguna OT registrada.",search:"Buscar por OT, cliente o técnico...",all:"Todos",conforme:"Conforme",naoConforme:"No Conforme",editOS:"✏️ Editar OT",newOSTitle:"➕ Nueva OT",numOS:"Número de OT",cliente:"Cliente",tecnico:"Técnico Responsable",dataAbertura:"Fecha de Apertura",dataInsp:"📅 Fecha de Inspección",itens:"📦 Ítems Inspeccionados",qtdTotal:"Total de Ítems Inspeccionados",tickOK:"Sin NC – Marcar OK",okConforme:"OK – Conforme",semNCSuffix:"Ninguna no conformidad. OT marcada como Conforme.",obs:"📝 Observaciones Generales",obsPlaceholder:"Registre observaciones...",ncs:"⚠️ No Conformidades",addNC:"+ NC",nenhumaNCS:"Ninguna no conformidad.",tipoNC:"Tipo de NC",descNC:"Descripción...",anexarFoto:"Adjuntar Foto",trocarFoto:"Cambiar Foto",salvar:"💾 Guardar OT",cancelar:"Cancelar",exportPDF:"📄 Exportar PDF",enviarEmail:"✉️ Enviar Email",editar:"✏️ Editar",voltar:"← Volver",pdf:"📄 PDF",email:"✉️ Email",excluir:"Eliminar",abertura:"Apertura:",emailTitle:"✉️ Enviar Reporte",comoFunciona:"ℹ️ Cómo funciona:",passo1:"1. Haz clic en Enviar.",passo2:"2. Tu correo se abrirá.",passo3:"3. Adjunta el PDF y envía.",emailDest:"Email del destinatario",emailPlaceholder:"ejemplo@email.com",enviar:"✉️ Enviar",settings:"⚙️ Configuración",language:"Idioma",theme:"Tema",dark:"🌙 Oscuro",light:"☀️ Claro",close:"Cerrar",emailPadrao:"Email predeterminado",saveSettings:"Guardar",nenhumaEncontrada:"Ninguna OT encontrada.",dataStorage:"💾 Almacenamiento",saveJSON:"💾 Guardar JSON",loadJSON:"📂 Cargar JSON",jsonFilename:"Nombre del archivo",savedOK:"✅ ¡Guardado!",loadedOK:"✅ ¡Cargado!",loadError:"❌ Error al cargar.",autoSave:"Guardar automáticamente",noData:"Sin datos.",storageInfo:"Los datos se guardan como JSON en tu PC.",qtd:"Cant.",importXLS:"📊 Importar Excel",importXLSTitle:"📊 Importar Lista de Inspecciones (Excel)",importXLSInfo:"Cada fila de la planilla se convierte en una nueva OT.",importXLSCols:"Columnas aceptadas:",importXLSDrop:"Arrastre el archivo aquí o haga clic",importXLSBtn:"Seleccionar .xlsx / .csv",importXLSPreview:"Vista previa",importXLSImport:"✅ Importar",importXLSSkip:"Ignorar duplicados (mismo Nº OT)",importedOK:"✅ {n} OTs importadas!",importError:"❌ Error al leer el archivo.",downloadTemplate:"⬇️ Descargar Plantilla Excel",groupByMonth:"Agrupar por Mes",expandAll:"Expandir Todo",collapseAll:"Contraer Todo"},
+};
+const DEFAULT_FILENAME="berthax_inspecoes";
+
+function fmtDate(d,lang){
+  if(!d)return"—";
+  return new Date(d+"T12:00:00").toLocaleDateString(lang==="en"?"en-US":lang==="es"?"es-ES":"pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
+}
+
+function exportPDF(os,lang){
+  const t=T[lang||"pt"],sev=SEV_LABEL_MAP[lang||"pt"];
+  const win=window.open("","_blank");
+  const ncRows=os.naoConformidades.map(nc=>{
+    const responsaveis=(nc.responsaveis||[]).length>0?nc.responsaveis.join(", "):"—";
+    return `<tr><td>${nc.tipo||"—"}</td><td style="color:${SEV_COLOR[nc.severidade]};font-weight:600">${sev[nc.severidade]}</td><td>${nc.descricao||"—"}</td><td>${responsaveis}</td><td style="text-align:center">${nc.foto?`<img src="${nc.foto}" style="max-width:120px;max-height:80px;border-radius:6px"/>`:"—"}</td></tr>`;
+  }).join("");
+  const itemRows=`<tr><td>${t.qtdTotal}</td><td>${os.quantidadeTotal||"—"}</td></tr><tr><td>${lang==="en"?"Total Non-Conformities":lang==="es"?"Total No Conformidades":"Total de Não Conformidades"}</td><td style="color:#f97316;font-weight:700">${os.totalNaoConformidades||os.naoConformidades.length||"—"}</td></tr>`;
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OS #${os.os}</title>
+  <style>body{font-family:'Segoe UI',sans-serif;padding:32px;color:#111;font-size:14px}
+  .hdr{display:flex;justify-content:space-between;border-bottom:3px solid #0ea5e9;padding-bottom:16px;margin-bottom:24px}
+  .co{font-size:22px;font-weight:800;color:#0ea5e9}.su{font-size:12px;color:#555;margin-top:4px}
+  .badge{padding:5px 16px;border-radius:99px;font-size:13px;font-weight:700;display:inline-block}
+  .conforme{background:#dcfce7;color:#16a34a}.nao_conforme{background:#fee2e2;color:#dc2626}
+  .sec{margin-bottom:22px}.st{font-size:13px;font-weight:700;color:#0ea5e9;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+  .fl label{font-size:11px;color:#888;display:block;margin-bottom:3px}.fl span{font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f1f5f9;padding:8px 12px;text-align:left;border:1px solid #e2e8f0}
+  td{padding:8px 12px;border:1px solid #e2e8f0;vertical-align:middle}tr:nth-child(even) td{background:#f8fafc}
+  .obs{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap}
+  .signs{margin-top:48px;display:flex;gap:48px}.sl{flex:1;text-align:center}
+  .sl div{border-top:1px solid #333;margin-top:40px;padding-top:6px;font-size:12px;color:#555}
+  .footer{margin-top:40px;border-top:1px solid #e2e8f0;padding-top:16px;display:flex;justify-content:space-between;font-size:11px;color:#888}
+  @media print{body{padding:20px}}</style></head><body>
+  <div class="hdr"><div><div class="co">BERTHAX SURGICAL LTDA</div><div class="su">${t.appSub}</div></div>
+  <div><div style="font-size:20px;font-weight:800">OS #${os.os}</div><div style="margin-top:6px"><span class="badge ${os.status}">${os.status==="conforme"?"✔ "+t.conforme:"✖ "+t.naoConforme}</span></div></div></div>
+  <div class="sec"><div class="st">${lang==="en"?"General Information":lang==="es"?"Información General":"Informações Gerais"}</div>
+  <div class="grid"><div class="fl"><label>${t.cliente}</label><span>${os.cliente||"—"}</span></div>
+  <div class="fl"><label>${t.tecnico}</label><span>${Array.isArray(os.tecnico)?os.tecnico.join(", "):(os.tecnico||"—")}</span></div>
+  <div class="fl"><label>${t.dataInsp.replace("📅 ","")}</label><span>${fmtDate(os.dataInspecao,lang)}</span></div></div></div>
+  <div class="sec"><div class="st">${t.itens.replace("📦 ","")}</div>
+  <table><thead><tr><th>${lang==="en"?"Field":lang==="es"?"Campo":"Campo"}</th><th>${lang==="en"?"Value":lang==="es"?"Valor":"Valor"}</th></tr></thead><tbody>${itemRows}
+  <tr><td>${lang==="en"?"Status":lang==="es"?"Estado":"Status"}</td><td>${os.okSemNC?"<span style='color:#16a34a;font-weight:600'>✅ "+t.semNCSuffix+"</span>":"<span style='color:#dc2626;font-weight:600'>⚠️ "+os.naoConformidades.length+" NC</span>"}</td></tr>
+  </tbody></table></div>
+  ${os.observacoes?`<div class="sec"><div class="st">${t.obs.replace("📝 ","")}</div><div class="obs">${os.observacoes}</div></div>`:""}
+  ${os.naoConformidades.length>0?`<div class="sec"><div class="st">${t.ncs.replace("⚠️ ","")} (${os.naoConformidades.length})</div>
+  <table><thead><tr><th>Tipo</th><th>${lang==="en"?"Severity":lang==="es"?"Severidad":"Severidade"}</th><th>${lang==="en"?"Description":lang==="es"?"Descripción":"Descrição"}</th><th>Foto</th></tr></thead>
+  <tbody>${ncRows}</tbody></table></div>`:""}
+  <div class="signs"><div class="sl"><div>${t.tecnico}: ${os.tecnico||"___________________"}</div></div>
+  <div class="sl"><div>${lang==="en"?"Quality Manager":lang==="es"?"Responsable de Calidad":"Responsável pela Qualidade"}</div></div></div>
+  <div class="footer"><span>Berthax Surgical LTDA</span><span>${lang==="en"?"Generated on":lang==="es"?"Generado el":"Gerado em"}: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span></div>
+  <script>window.onload=function(){window.print();}<\/script></body></html>`);
+  win.document.close();
+}
+
+function exportRelatMensal(mes,ano,osList,lang,emailDest){
+  const t=T[lang||"pt"],sev=SEV_LABEL_MAP[lang||"pt"];
+  const nomeMes=new Date(ano,mes-1,1).toLocaleDateString(lang==="en"?"en-US":lang==="es"?"es-ES":"pt-BR",{month:"long",year:"numeric"});
+  const osDoMes=osList.filter(o=>{const d=new Date(o.createdAt);return d.getMonth()+1===mes&&d.getFullYear()===ano;});
+  const totalOS=osDoMes.length;
+  const totalItens=osDoMes.reduce((a,o)=>a+(parseInt(o.quantidadeTotal)||0),0);
+  const osNC=osDoMes.filter(o=>o.status==="nao_conforme");
+  const totalNC=osNC.reduce((a,o)=>a+o.naoConformidades.length,0);
+  const totalConformes=osDoMes.filter(o=>o.status==="conforme").length;
+  const taxa=totalOS>0?Math.round((totalConformes/totalOS)*100):0;
+  const tecMap={};
+  osDoMes.forEach(o=>{const tec=o.tecnico||"—";if(!tecMap[tec])tecMap[tec]={total:0,nc:0};tecMap[tec].total++;if(o.status==="nao_conforme")tecMap[tec].nc++;});
+  const barMaxW=220;
+  const tecRows=Object.entries(tecMap).map(([tec,v])=>{
+    const pct=v.total>0?Math.round(((v.total-v.nc)/v.total)*100):0;
+    const barW=Math.round((pct/100)*barMaxW);
+    return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0;font-weight:600">${tec}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${v.total}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center;color:#dc2626;font-weight:600">${v.nc}</td><td style="padding:8px 12px;border:1px solid #e2e8f0"><div style="display:flex;align-items:center;gap:8px"><div style="background:#e2e8f0;border-radius:99px;height:12px;width:${barMaxW}px;overflow:hidden"><div style="background:${pct>=80?"#16a34a":pct>=50?"#d97706":"#dc2626"};width:${barW}px;height:100%;border-radius:99px"></div></div><span style="font-weight:700;color:${pct>=80?"#16a34a":pct>=50?"#d97706":"#dc2626"};min-width:36px">${pct}%</span></div></td></tr>`;
+  }).join("");
+  const ncListRows=osNC.map(o=>`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0;font-weight:600">#${o.os}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${o.cliente||"—"}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${Array.isArray(o.tecnico)?o.tecnico.join(", "):(o.tecnico||"—")}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${fmtDate(o.dataInspecao,lang)}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${o.naoConformidades.map(nc=>`<div style="margin-bottom:4px"><span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600">${nc.tipo||"NC"}</span><span style="font-size:11px;color:${SEV_COLOR[nc.severidade]};margin-left:4px">● ${sev[nc.severidade]}</span> <span style="font-size:11px;color:#3b82f6;margin-left:8px">(${(nc.responsaveis||[]).join(", ")||"Responsável não definido"})</span></div>`).join("")}</td></tr>`).join("");
+  const win=window.open("","_blank");
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório Mensal – ${nomeMes}</title>
+  <style>body{font-family:'Segoe UI',sans-serif;padding:32px;color:#111;font-size:14px;margin:0}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0ea5e9;padding-bottom:16px;margin-bottom:28px}
+  .co{font-size:22px;font-weight:800;color:#0ea5e9}.su{font-size:12px;color:#555;margin-top:4px}.ti{font-size:18px;font-weight:700;margin-top:4px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+  .kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;text-align:center}
+  .kpi .val{font-size:32px;font-weight:800;margin-bottom:4px}.kpi .lbl{font-size:12px;color:#555}
+  .sec{margin-bottom:28px}.st{font-size:13px;font-weight:700;color:#0ea5e9;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
+  table{width:100%;border-collapse:collapse;font-size:13px}th{background:#f1f5f9;padding:8px 12px;text-align:left;border:1px solid #e2e8f0;font-size:12px;color:#475569}
+  tr:nth-child(even) td{background:#f8fafc}
+  .footer{margin-top:40px;border-top:1px solid #e2e8f0;padding-top:16px;display:flex;justify-content:space-between;font-size:11px;color:#888}
+  @media print{body{padding:20px}}</style></head><body>
+  <div class="hdr"><div><div class="co">BERTHAX SURGICAL LTDA</div><div class="su">${t.appSub}</div>
+  <div class="ti">${lang==="en"?"Monthly Report":lang==="es"?"Reporte Mensual":"Relatório Mensal"} – ${nomeMes.charAt(0).toUpperCase()+nomeMes.slice(1)}</div></div>
+  <div style="text-align:right;font-size:12px;color:#555"><div>${lang==="en"?"Generated on":lang==="es"?"Generado el":"Gerado em"}:</div>
+  <div style="font-weight:600">${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div></div></div>
+  <div class="kpis">
+  <div class="kpi"><div class="val" style="color:#0284c7">${totalOS}</div><div class="lbl">${lang==="en"?"Total Work Orders":lang==="es"?"Total OTs":"Total de OS"}</div></div>
+  <div class="kpi"><div class="val" style="color:#7c3aed">${totalItens}</div><div class="lbl">${lang==="en"?"Items Inspected":lang==="es"?"Ítems Inspeccionados":"Itens Inspecionados"}</div></div>
+  <div class="kpi"><div class="val" style="color:#dc2626">${totalNC}</div><div class="lbl">${lang==="en"?"Non-Conformities":lang==="es"?"No Conformidades":"Não Conformidades"}</div></div>
+  <div class="kpi"><div class="val" style="color:${taxa>=80?"#16a34a":taxa>=50?"#d97706":"#dc2626"}">${taxa}%</div><div class="lbl">${lang==="en"?"Conformance Rate":lang==="es"?"Tasa Conformidad":"Taxa de Conformidade"}</div></div>
+  </div>
+  ${Object.keys(tecMap).length>0?`<div class="sec"><div class="st">${lang==="en"?"Performance by Technician":lang==="es"?"Desempeño por Técnico":"Desempenho por Técnico"}</div>
+  <table><thead><tr><th>${lang==="en"?"Technician":lang==="es"?"Técnico":"Técnico"}</th><th>${lang==="en"?"Total OS":"Total OS"}</th><th>NC</th><th>${lang==="en"?"Conformance":lang==="es"?"Conformidad":"Conformidade"}</th></tr></thead><tbody>${tecRows}</tbody></table></div>`:""}
+  ${osNC.length>0?`<div class="sec"><div class="st">${lang==="en"?"Non-Conforming WOs":lang==="es"?"OTs No Conformes":"OS com Não Conformidades"} (${osNC.length})</div>
+  <table><thead><tr><th>OS</th><th>${lang==="en"?"Client":lang==="es"?"Cliente":"Cliente"}</th><th>${lang==="en"?"Technician":lang==="es"?"Técnico":"Técnico"}</th><th>${lang==="en"?"Date":lang==="es"?"Fecha":"Data"}</th><th>NC</th></tr></thead><tbody>${ncListRows}</tbody></table></div>`
+  :`<div class="sec"><div class="st">NC</div><p style="color:#16a34a;font-weight:600">✅ ${lang==="en"?"No non-conformities this month.":lang==="es"?"Sin no conformidades este mes.":"Nenhuma não conformidade neste mês."}</p></div>`}
+  <div class="footer"><span>Berthax Surgical LTDA – ${lang==="en"?"Monthly Quality Report":lang==="es"?"Reporte Mensual de Calidad":"Relatório Mensal de Qualidade"}</span><span>${nomeMes.charAt(0).toUpperCase()+nomeMes.slice(1)}</span></div>
+  <script>window.onload=function(){window.print();}<\/script></body></html>`);
+  win.document.close();
+  if(emailDest){
+    const subj=encodeURIComponent(`Relatório Mensal de Qualidade – ${nomeMes} | Berthax Surgical LTDA`);
+    const body=encodeURIComponent(`Olá,\n\nRelatório Mensal – ${nomeMes}\n\nTotal OS: ${totalOS}\nItens Inspecionados: ${totalItens}\nNão Conformidades: ${totalNC}\nTaxa de Conformidade: ${taxa}%\n\nBerthax Surgical LTDA`);
+    setTimeout(()=>{window.location.href=`mailto:${emailDest}?subject=${subj}&body=${body}`;},1000);
+  }
+}
+
+const initialState={view:"dashboard",osList:[],form:null,filterText:"",filterStatus:"all",filterTecnico:"all",emailModal:null,settingsOpen:false,lang:"pt",theme:"dark",emailPadrao:"",jsonFilename:DEFAULT_FILENAME,autoSave:false,toast:null,relModal:false,relMes:new Date().getMonth()+1,relAno:new Date().getFullYear(),relEmail:"",saveModal:false,savedFileName:null,cloudModal:false,importModal:false,groupByMonth:true,expandedGroups:{},tracker:[],trackerModal:null,externo:[],externoModal:null,trackerTab:"interno",coleta:[],coletaModal:null,confirmMsg:null};
+
+function reducer(state,action){
+  switch(action.type){
+    case "SET_VIEW":return{...state,view:action.payload==="coleta"?"tracker":action.payload,form:null};
+    case "NEW_OS":return{...state,view:"form",form:emptyOS()};
+    case "EDIT_OS":return{...state,view:"form",form:JSON.parse(JSON.stringify(action.payload))};
+    case "VIEW_OS":return{...state,view:"detail",form:action.payload};
+    case "UPDATE_FORM":return{...state,form:{...state.form,...action.payload}};
+    case "TOGGLE_OK":{const okSemNC=!state.form.okSemNC;return{...state,form:{...state.form,okSemNC,status:okSemNC?"conforme":"nao_conforme",naoConformidades:okSemNC?[]:state.form.naoConformidades}};}
+    case "SAVE_OS":{
+      const exists=state.osList.find(o=>o.id===state.form.id);
+      const osList=exists?state.osList.map(o=>o.id===state.form.id?state.form:o):[...state.osList,state.form];
+      let newTracker=state.tracker;
+      if(!exists){
+        const tecnicos = Array.isArray(state.form.tecnico)?state.form.tecnico.join(", "):state.form.tecnico||"—";
+        const tEntry={
+          id:genId(),
+          numOs:state.form.os||"",
+          cliente:state.form.cliente||"",
+          dataEntrada:state.form.dataInspecao||new Date().toISOString().slice(0,10),
+          situacao:"finalizada",
+          obs:("Inspecao finalizada. Tecnicos: "+tecnicos+". "+(state.form.observacoes||"")).trim(),
+          _fromInspecao:true,
+        };
+        newTracker=[...state.tracker,tEntry];
+      }
+      return{...state,osList,tracker:newTracker,view:"history",form:null};
+    }
+    case "DELETE_OS":return{...state,osList:state.osList.filter(o=>o.id!==action.payload)};
+    case "SET_FILTER":return{...state,filterText:action.payload};
+    case "SET_FILTER_STATUS":return{...state,filterStatus:action.payload};
+    case "SET_FILTER_TECNICO":return{...state,filterTecnico:action.payload};
+    case "ADD_NC":return{...state,form:{...state.form,naoConformidades:[...state.form.naoConformidades,emptyNC()],status:"nao_conforme",okSemNC:false}};
+    case "UPDATE_NC":return{...state,form:{...state.form,naoConformidades:state.form.naoConformidades.map(nc=>nc.id===action.id?{...nc,[action.field]:action.value}:nc)}};
+    case "REMOVE_NC":{const ncs=state.form.naoConformidades.filter(nc=>nc.id!==action.id);return{...state,form:{...state.form,naoConformidades:ncs,status:ncs.length===0?"conforme":"nao_conforme"}};}
+    case "OPEN_EMAIL":return{...state,emailModal:{os:action.payload,email:state.emailPadrao||""}};
+    case "SET_EMAIL":return{...state,emailModal:{...state.emailModal,email:action.payload}};
+    case "CLOSE_EMAIL":return{...state,emailModal:null};
+    case "TOGGLE_SETTINGS":return{...state,settingsOpen:!state.settingsOpen};
+    case "SAVE_SETTINGS":return{...state,lang:action.lang,theme:action.theme,emailPadrao:action.emailPadrao,jsonFilename:action.jsonFilename||DEFAULT_FILENAME,autoSave:action.autoSave,settingsOpen:false};
+    case "SHOW_TOAST":return{...state,toast:action.msg};
+    case "HIDE_TOAST":return{...state,toast:null};
+    case "OPEN_REL":return{...state,relModal:true,relEmail:state.emailPadrao||""};
+    case "CLOSE_REL":return{...state,relModal:false};
+    case "SET_REL":return{...state,[action.field]:action.value};
+    case "OPEN_SAVE_MODAL":return{...state,saveModal:true};
+    case "CLOSE_SAVE_MODAL":return{...state,saveModal:false};
+    case "SET_SAVED_FILENAME":return{...state,savedFileName:action.payload,saveModal:false};
+    case "OPEN_CLOUD_MODAL":return{...state,cloudModal:true};
+    case "CLOSE_CLOUD_MODAL":return{...state,cloudModal:false};
+    case "OPEN_IMPORT":return{...state,importModal:true};
+    case "CLOSE_IMPORT":return{...state,importModal:false};
+    case "IMPORT_OS":{
+      const existNums=new Set(state.osList.map(o=>o.os));
+      const toAdd=action.skipDup?action.payload.filter(o=>!existNums.has(o.os)):action.payload;
+      return{...state,osList:[...state.osList,...toAdd],importModal:false,view:"history"};
+    }
+    case "TOGGLE_GROUP":return{...state,groupByMonth:!state.groupByMonth};
+    case "TOGGLE_EXPAND":return{...state,expandedGroups:{...state.expandedGroups,[action.key]:!state.expandedGroups[action.key]}};
+    case "EXPAND_ALL":{const eg={};action.keys.forEach(k=>{eg[k]=true;});return{...state,expandedGroups:eg};}
+    case "COLLAPSE_ALL":return{...state,expandedGroups:{}};
+    case "OPEN_TRACKER_MODAL":return{...state,trackerModal:action.payload||{id:null,cliente:"",dataEntrada:new Date().toISOString().slice(0,10),situacao:"aguardando",obs:""}};
+    case "CLOSE_TRACKER_MODAL":return{...state,trackerModal:null};
+    case "SAVE_TRACKER":{const ex=state.tracker.find(x=>x.id===action.payload.id);const tracker=ex?state.tracker.map(x=>x.id===action.payload.id?action.payload:x):[...state.tracker,{...action.payload,id:action.payload.id||genId()}];return{...state,tracker,trackerModal:null};}
+    case "DELETE_TRACKER":return{...state,tracker:state.tracker.filter(x=>x.id!==action.payload)};
+    case "UPDATE_TRACKER_STATUS":return{...state,tracker:state.tracker.map(x=>x.id===action.id?{...x,situacao:action.situacao}:x)};
+    case "SET_TRACKER_TAB":return{...state,trackerTab:action.payload};
+    case "OPEN_EXTERNO_MODAL":return{...state,externoModal:action.payload||{id:null,cliente:"",numOs:"",tipoServico:"",prestador:"",dataEnvio:new Date().toISOString().slice(0,10),dataRetornoPrev:"",situacao:"aguardando_envio",obs:""}};
+    case "CLOSE_EXTERNO_MODAL":return{...state,externoModal:null};
+    case "SAVE_EXTERNO":{const ex=state.externo.find(x=>x.id===action.payload.id);const externo=ex?state.externo.map(x=>x.id===action.payload.id?action.payload:x):[...state.externo,{...action.payload,id:action.payload.id||genId()}];return{...state,externo,externoModal:null};}
+    case "DELETE_EXTERNO":return{...state,externo:state.externo.filter(x=>x.id!==action.payload)};
+    case "UPDATE_EXTERNO_STATUS":return{...state,externo:state.externo.map(x=>x.id===action.id?{...x,situacao:action.situacao,...(action.dataRetorno?{dataRetorno:action.dataRetorno}:{})}:x)};
+    case "OPEN_COLETA_MODAL":return{...state,coletaModal:action.payload||{id:null,cliente:"",numOs:"",dataSolicitacao:new Date().toISOString().slice(0,10),dataRetirada:"",status:"pendente",obs:""}};
+    case "CLOSE_COLETA_MODAL":return{...state,coletaModal:null};
+    case "SAVE_COLETA":{const ex=state.coleta.find(x=>x.id===action.payload.id);const coleta=ex?state.coleta.map(x=>x.id===action.payload.id?action.payload:x):[...state.coleta,{...action.payload,id:action.payload.id||genId()}];return{...state,coleta,coletaModal:null};}
+    case "DELETE_COLETA":return{...state,coleta:state.coleta.filter(x=>x.id!==action.payload)};
+    case "UPDATE_COLETA_STATUS":return{...state,coleta:state.coleta.map(x=>x.id===action.id?{...x,status:action.status,...(action.dataRetirada?{dataRetirada:action.dataRetirada}:{})}:x)};
+    case "LOAD_DATA":return{...state,osList:action.payload.osList||action.payload,tracker:action.payload.tracker||[],externo:action.payload.externo||[],coleta:action.payload.coleta||[]};
+    case "SHOW_CONFIRM":return{...state,confirmMsg:action.msg};
+    case "HIDE_CONFIRM":return{...state,confirmMsg:null};
+    default:return state;
+  }
+}
+
+function ConfirmModal({msg,th,onConfirm,onCancel,lang}){
+  if(!msg)return null;
+  const cancelLabel=lang==="en"?"Cancel":lang==="es"?"Cancelar":"Cancelar";
+  const confirmLabel=lang==="en"?"Confirm":lang==="es"?"Confirmar":"Confirmar";
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
+      <div style={{background:th.surface,borderRadius:16,padding:32,maxWidth:400,width:"100%",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)",textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:16}}>⚠️</div>
+        <p style={{color:th.text,fontSize:15,fontWeight:600,marginBottom:24,lineHeight:1.5}}>{msg}</p>
+        <div style={{display:"flex",gap:12,justifyContent:"center"}}>
+          <button onClick={onCancel} style={{flex:1,padding:"11px 0",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textMuted,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{cancelLabel}</button>
+          <button onClick={onConfirm} style={{flex:1,padding:"11px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#dc2626,#ef4444)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(220,38,38,0.35)"}}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OSCard({o,dispatch,t,th,B,state,exportPDF,fmtDate,onConfirmDelete}){
+  const [menuOpen,setMenuOpen]=useState(false);
+  const ncCount=parseInt(o.totalNaoConformidades)||o.naoConformidades.length;
+  const isConf=o.status==="conforme";
+  return(
+    <div style={{background:th.surface,borderRadius:12,padding:"14px 18px",border:`1px solid ${th.border}`,borderLeft:`3px solid ${isConf?"#22c55e":"#ef4444"}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,position:"relative"}}>
+      <div onClick={()=>dispatch({type:"VIEW_OS",payload:o})} style={{cursor:"pointer",flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
+          <span style={{fontWeight:700,color:th.accent,fontSize:15,whiteSpace:"nowrap"}}>OS #{o.os}</span>
+          <span style={{padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700,background:isConf?"#14532d":"#450a0a",color:isConf?"#22c55e":"#ef4444",whiteSpace:"nowrap"}}>{isConf?"✅ "+t.conforme:"⚠️ "+t.naoConforme}</span>
+          {ncCount>0&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:700,background:"#431407",color:"#fb923c",whiteSpace:"nowrap"}}>{ncCount} NC</span>}
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:"4px 14px",fontSize:12,color:th.textSub,marginTop:2}}>
+          <span style={{whiteSpace:"nowrap"}}>👤 {o.cliente||"—"}</span>
+          <span style={{whiteSpace:"nowrap"}}>🔧 {o.tecnico||"—"}</span>
+          <span style={{whiteSpace:"nowrap"}}>📅 {fmtDate(o.dataInspecao,state.lang)}</span>
+        </div>
+      </div>
+      <div style={{position:"relative",flexShrink:0}}>
+        <button onClick={()=>setMenuOpen(v=>!v)} style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:menuOpen?th.accent:"transparent",color:menuOpen?"#fff":th.textMuted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.15s",userSelect:"none",fontFamily:"inherit"}}>{menuOpen?"✕":"⋯"}</button>
+        {menuOpen&&(
+          <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:th.surface,border:`1px solid ${th.border2}`,borderRadius:12,padding:6,zIndex:100,display:"flex",flexDirection:"column",gap:4,minWidth:160,boxShadow:"0 12px 40px rgba(0,0,0,0.4)"}}>
+            {[
+              {label:"📄 "+t.pdf,action:()=>{exportPDF(o,state.lang);setMenuOpen(false);},bg:"#166534",color:"#86efac"},
+              {label:"✉️ "+t.email,action:()=>{dispatch({type:"OPEN_EMAIL",payload:o});setMenuOpen(false);},bg:"#1e3a8a",color:"#93c5fd"},
+              {label:"✏️ "+(t.editar||"Editar").replace("✏️ ",""),action:()=>{dispatch({type:"EDIT_OS",payload:o});setMenuOpen(false);},bg:"#0c3547",color:"#7dd3fc"},
+              {label:"🗑 "+t.excluir,action:()=>{setMenuOpen(false);if(onConfirmDelete){onConfirmDelete(state.lang==="en"?`Delete OS #${o.os}?`:state.lang==="es"?`¿Eliminar OS #${o.os}?`:`Excluir OS #${o.os}?`,()=>dispatch({type:"DELETE_OS",payload:o.id}));}else{if(window.confirm("Excluir OS #"+o.os+"?"))dispatch({type:"DELETE_OS",payload:o.id});}},bg:"#7f1d1d",color:"#fca5a5"},
+            ].map(({label,action,bg,color})=>(
+              <button key={label} onClick={action} style={{padding:"8px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:bg+"33",color,textAlign:"left",fontFamily:"inherit",transition:"background 0.1s"}} onMouseEnter={e=>e.currentTarget.style.background=bg+"66"} onMouseLeave={e=>e.currentTarget.style.background=bg+"33"}>{label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashboardKPI({state,dispatch,th,t,C,fmtDate}){
+  const chartRef=useRef(null);
+  const chartInstance=useRef(null);
+  const total=state.osList.length;
+  const conformes=state.osList.filter(o=>o.status==="conforme").length;
+  const naoConformes=total-conformes;
+  const taxa=total>0?Math.round((conformes/total)*100):0;
+  const totalPecas=state.osList.reduce((a,o)=>a+(parseInt(o.quantidadeTotal)||0),0);
+  const totalNCs=state.osList.reduce((a,o)=>a+(parseInt(o.totalNaoConformidades)||o.naoConformidades.length),0);
+
+  const monthlyData=React.useMemo(()=>{
+    const map={};
+    state.osList.forEach(o=>{
+      const d=o.dataInspecao?new Date(o.dataInspecao+"T12:00:00"):new Date(o.createdAt);
+      const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      if(!map[key])map[key]={total:0,conf:0};
+      map[key].total++;if(o.status==="conforme")map[key].conf++;
+    });
+    const keys=Object.keys(map).sort().slice(-6);
+    return{
+      labels:keys.map(k=>{const[y,m]=k.split("-");return new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString(state.lang==="en"?"en-US":state.lang==="es"?"es-ES":"pt-BR",{month:"short",year:"2-digit"});}),
+      conf:keys.map(k=>map[k].conf),
+      naoConf:keys.map(k=>map[k].total-map[k].conf),
+      taxa:keys.map(k=>map[k].total>0?Math.round((map[k].conf/map[k].total)*100):0),
+    };
+  },[state.osList,state.lang]);
+
+  const tecnicoRanking=React.useMemo(()=>{
+    const map={};
+    state.osList.forEach(o=>{
+      const tecList=Array.isArray(o.tecnico)?o.tecnico:(o.tecnico?String(o.tecnico).split(",").map(t=>t.trim()):["—"]);
+      tecList.forEach(tec=>{
+        const tName=tec||"—";
+        if(!map[tName])map[tName]={total:0,conf:0,ncs:0};
+        map[tName].total++;
+        if(o.status==="conforme")map[tName].conf++;
+        map[tName].ncs+=parseInt(o.totalNaoConformidades)||o.naoConformidades.length;
+      });
+    });
+    return Object.entries(map).map(([nome,d])=>({nome,total:d.total,conf:d.conf,taxa:d.total>0?Math.round((d.conf/d.total)*100):0,ncs:d.ncs})).sort((a,b)=>b.taxa-a.taxa).slice(0,5);
+  },[state.osList]);
+
+  useEffect(()=>{
+    if(!chartRef.current)return;
+    if(typeof Chart==="undefined")return;
+    if(chartInstance.current)chartInstance.current.destroy();
+    const isDark=state.theme==="dark";
+    const gridColor=isDark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)";
+    const tickColor=isDark?"#888":"#999";
+    chartInstance.current=new Chart(chartRef.current,{
+      type:"line",
+      data:{
+        labels:monthlyData.labels,
+        datasets:[
+          {label:state.lang==="en"?"Compliant":state.lang==="es"?"Conforme":"Conforme",data:monthlyData.conf,backgroundColor:"rgba(34,197,94,0.1)",borderColor:"#22c55e",borderWidth:3,pointBackgroundColor:"#22c55e",pointBorderColor:"#fff",pointBorderWidth:2,pointRadius:6,tension:0.4,fill:true},
+          {label:state.lang==="en"?"Non-Compliant":state.lang==="es"?"No Conforme":"Não Conforme",data:monthlyData.naoConf,backgroundColor:"rgba(239,68,68,0.1)",borderColor:"#ef4444",borderWidth:3,pointBackgroundColor:"#ef4444",pointBorderColor:"#fff",pointBorderWidth:2,pointRadius:6,tension:0.4,fill:true},
+        ],
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{display:true,position:"top",labels:{usePointStyle:true,padding:20,font:{size:12}}},
+          tooltip:{backgroundColor:isDark?"#1e1e1e":"#fff",titleColor:isDark?"#eee":"#111",bodyColor:isDark?"#ccc":"#444",borderColor:isDark?"#3a3a3a":"#e5e7eb",borderWidth:1,cornerRadius:8,callbacks:{footer:(items)=>`Taxa: ${monthlyData.taxa[items[0].dataIndex]}%`}},
+        },
+        scales:{
+          x:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:11}},border:{color:"transparent"}},
+          y:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:11},stepSize:1},border:{color:"transparent"},beginAtZero:true},
+        },
+      },
+    });
+    return()=>{if(chartInstance.current)chartInstance.current.destroy();};
+  },[monthlyData,state.theme]);
+
+  const kpis=[
+    {label:t.totalOS||"Total de OS",value:total,icon:"📋",bg:"rgba(244,123,32,0.08)",color:"#F47B20",border:"rgba(244,123,32,0.25)"},
+    {label:t.conformes,value:conformes,icon:"✅",bg:"rgba(34,197,94,0.08)",color:"#22c55e",border:"rgba(34,197,94,0.25)"},
+    {label:t.naoConformes,value:naoConformes,icon:"⚠️",bg:"rgba(239,68,68,0.08)",color:"#ef4444",border:"rgba(239,68,68,0.25)"},
+    {label:t.totalPecas,value:totalPecas.toLocaleString("pt-BR"),icon:"🔩",bg:"rgba(180,180,180,0.06)",color:"#AAAAAA",border:"rgba(180,180,180,0.2)"},
+    {label:t.totalNCs,value:totalNCs,icon:"🚫",bg:"rgba(248,113,113,0.08)",color:"#f87171",border:"rgba(248,113,113,0.2)"},
+    {label:t.taxaConf,value:taxa+"%",icon:"📈",bg:taxa>=80?"rgba(34,197,94,0.08)":taxa>=50?"rgba(244,123,32,0.08)":"rgba(239,68,68,0.08)",color:taxa>=80?"#22c55e":taxa>=50?"#F47B20":"#ef4444",border:taxa>=80?"rgba(34,197,94,0.25)":taxa>=50?"rgba(244,123,32,0.25)":"rgba(239,68,68,0.25)"},
+  ];
+
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
+        {kpis.map(({label,value,icon,bg,color,border})=>(
+          <div key={label} style={{background:bg,borderRadius:14,padding:"18px 20px",border:`1px solid ${border}`,display:"flex",flexDirection:"column",gap:4}}>
+            <div style={{fontSize:22,lineHeight:1}}>{icon}</div>
+            <div style={{fontSize:28,fontWeight:800,color,letterSpacing:"-0.5px",lineHeight:1.1,marginTop:6}}>{value}</div>
+            <div style={{fontSize:11,color:th.textMuted,fontWeight:500,marginTop:2}}>{label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{...C,marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:10,alignItems:"center"}}>
+          <span style={{fontWeight:700,color:th.text,fontSize:14}}>{t.taxaGeral}</span>
+          <span style={{fontWeight:800,color:taxa>=80?"#22c55e":taxa>=50?"#F47B20":"#ef4444",fontSize:22,letterSpacing:"-0.5px"}}>{taxa}%</span>
+        </div>
+        <div style={{background:th.bg,borderRadius:99,height:10,overflow:"hidden"}}>
+          <div style={{width:taxa+"%",height:"100%",background:taxa>=80?"linear-gradient(90deg,#22c55e,#4ade80)":taxa>=50?"linear-gradient(90deg,#F47B20,#fb923c)":"linear-gradient(90deg,#ef4444,#f87171)",borderRadius:99,transition:"width 0.6s cubic-bezier(0.34,1.56,0.64,1)"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:8,fontSize:11,color:th.textMuted}}>
+          <span>0%</span><span style={{color:"#d97706"}}>Meta: 80%</span><span>100%</span>
+        </div>
+      </div>
+      <div style={{...C,marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+          <span style={{fontWeight:700,color:th.text,fontSize:14}}>📊 {state.lang==="en"?"Monthly Trend":state.lang==="es"?"Tendencia Mensual":"Tendência Mensal"}</span>
+        </div>
+        {state.osList.length===0?(
+          <div style={{height:200,display:"flex",alignItems:"center",justifyContent:"center",color:th.textMuted,fontSize:13}}>{t.nenhumaOS}</div>
+        ):(
+          <div style={{position:"relative",height:200}}><canvas ref={chartRef}/></div>
+        )}
+      </div>
+      {tecnicoRanking.length>0&&(
+        <div style={{...C,marginBottom:20}}>
+          <div style={{fontWeight:700,color:th.text,marginBottom:14,fontSize:14}}>🏅 {state.lang==="en"?"Top Technicians":state.lang==="es"?"Top Técnicos":"Top Técnicos"}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {tecnicoRanking.map((tec,idx)=>{
+              const medal=["🥇","🥈","🥉"][idx]||"";
+              const taxaColor=tec.taxa>=80?"#22c55e":tec.taxa>=60?"#F47B20":"#ef4444";
+              return(
+                <div key={tec.nome} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:th.surface2,border:`1px solid ${th.border2}`}}>
+                  <span style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{medal||`#${idx+1}`}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,color:th.text,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tec.nome}</div>
+                    <div style={{background:th.bg,borderRadius:99,height:4,overflow:"hidden",marginTop:4}}>
+                      <div style={{width:tec.taxa+"%",height:"100%",background:taxaColor,borderRadius:99,transition:"width 0.5s"}}/>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+                    <span style={{fontSize:13,fontWeight:800,color:taxaColor,minWidth:40,textAlign:"right"}}>{tec.taxa}%</span>
+                    <span style={{fontSize:10,color:th.textMuted,background:th.bg,padding:"2px 7px",borderRadius:99,border:`1px solid ${th.border2}`}}>{tec.total} OS</span>
+                    {tec.ncs>0&&<span style={{fontSize:10,color:"#f87171",background:"#450a0a",padding:"2px 7px",borderRadius:99}}>{tec.ncs} NC</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{...C,marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontWeight:700,color:th.text,fontSize:14}}>📊 {state.lang==="en"?"Monthly Report":state.lang==="es"?"Reporte Mensual":"Relatório Mensal"}</div>
+          <div style={{fontSize:12,color:th.textMuted,marginTop:3}}>{state.lang==="en"?"Generate and send monthly inspection summary":state.lang==="es"?"Genere y envíe el resumen mensual de inspecciones":"Gere e envie o resumo mensal de inspeções por e-mail"}</div>
+        </div>
+        <button onClick={()=>dispatch({type:"OPEN_REL"})} style={{padding:"10px 22px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#F47B20,#FF9A45)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(244,123,32,0.35)",fontFamily:"inherit"}}>
+          📋 {state.lang==="en"?"Generate Report":state.lang==="es"?"Generar Reporte":"Gerar Relatório"}
+        </button>
+      </div>
+      <div style={C}>
+        <div style={{fontWeight:700,color:th.text,marginBottom:14,fontSize:14}}>{t.ultimasInsp}</div>
+        {state.osList.length===0&&<div style={{color:th.textMuted,textAlign:"center",padding:24}}>{t.nenhumaOS}</div>}
+        {[...state.osList].sort((a,b)=>b.createdAt-a.createdAt).slice(0,5).map(o=>(
+          <div key={o.id} onClick={()=>dispatch({type:"VIEW_OS",payload:o})} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:`1px solid ${th.border}`,cursor:"pointer",gap:8,flexWrap:"wrap"}}>
+            <div style={{minWidth:0}}><span style={{fontWeight:600,color:th.text}}>OS #{o.os}</span><span style={{color:th.textMuted,marginLeft:12,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.cliente}</span></div>
+            <div style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}}>
+              <span style={{fontSize:11,color:th.textMuted}}>{fmtDate(o.dataInspecao,state.lang)}</span>
+              <span style={{padding:"3px 12px",borderRadius:99,fontSize:11,fontWeight:700,background:o.status==="conforme"?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)",color:o.status==="conforme"?"#22c55e":"#ef4444",whiteSpace:"nowrap"}}>{o.status==="conforme"?t.conforme:t.naoConforme}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ImportModal({th,t,I,B,state,dispatch}){
+  const [rows,setRows]=useState([]);
+  const [err,setErr]=useState("");
+  const [skip,setSkip]=useState(true);
+  const [drag,setDrag]=useState(false);
+  const fRef=useRef();
+
+  function parseDate(v){
+    if(!v)return"";
+    if(typeof v==="number"){const d=new Date(Math.round((v-25569)*86400*1000));return d.toISOString().slice(0,10);}
+    const s=String(v).trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+    const m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if(m)return`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+    const d=new Date(s);if(!isNaN(d))return d.toISOString().slice(0,10);
+    return s;
+  }
+  function nk(k){return String(k||"").toLowerCase().trim().replace(/[\s_\-]/g,"");}
+  function fi(headers,...names){for(const n of names){const i=headers.indexOf(nk(n));if(i>=0)return i;}return -1;}
+
+  function parseSheet(data){
+    if(!data||data.length<2){setErr(t.importError);return;}
+    const h=data[0].map(nk);
+    const cOS=fi(h,"numeroos","os","wo","workorder","numeros","nros","nros","numeroda","num");
+    const cCli=fi(h,"cliente","client","customer","empresa");
+    const cDt=fi(h,"datainspecao","data","date","datainsp","inspectiondate");
+    const cTec=fi(h,"tecnico","technician","tech","responsavel");
+    const cQtd=fi(h,"quantidadetotal","qtdtotal","qtd","quantity","totalitens","itens");
+    const cNC=fi(h,"totalnaoconformidades","totalnc","nc","naoconformidades","nonconformities","nctotal","totalnonconformidades");
+    const cObs=fi(h,"observacoes","observações","obs","notes","notas","remarks");
+    const cSt=fi(h,"status","estado","state");
+    if(cOS<0){setErr("Coluna 'Numero_OS' não encontrada. Verifique o cabeçalho.");return;}
+    const out=[];
+    for(let i=1;i<data.length;i++){
+      const r=data[i];
+      const osNum=String(r[cOS]||"").trim();
+      if(!osNum)continue;
+      const nc=cNC>=0?parseInt(r[cNC])||0:0;
+      const stRaw=cSt>=0?String(r[cSt]||"").toLowerCase():"";
+      const status=stRaw.includes("nao")||stRaw.includes("não")||stRaw.includes("non")||nc>0?"nao_conforme":"conforme";
+      const dt=cDt>=0?parseDate(r[cDt]):"";
+      out.push({id:genId(),os:osNum,cliente:cCli>=0?String(r[cCli]||""):"",tecnico:cTec>=0?String(r[cTec]||""):"",data:dt||new Date().toISOString().slice(0,10),dataInspecao:dt||new Date().toISOString().slice(0,10),quantidadeTotal:cQtd>=0?String(r[cQtd]||""):"",totalNaoConformidades:String(nc||""),observacoes:cObs>=0?String(r[cObs]||""):"",okSemNC:nc===0&&status==="conforme",naoConformidades:[],status,createdAt:dt?new Date(dt+"T12:00:00").getTime()||Date.now():Date.now()});
+    }
+    if(!out.length){setErr(t.importError);return;}
+    setErr("");setRows(out);
+  }
+
+  function readFile(file){
+    const rd=new FileReader();
+    rd.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];parseSheet(XLSX.utils.sheet_to_json(ws,{header:1,defval:""}));}catch{setErr(t.importError);}};
+    rd.readAsArrayBuffer(file);
+  }
+
+  function dlTemplate(){
+    const ws=XLSX.utils.aoa_to_sheet([["Numero_OS","Cliente","Data_Inspecao","Tecnico","Quantidade_Total","Total_Nao_Conformidades","Observacoes","Status"],["OS-001","Cliente Exemplo","2025-03-15","João Silva","100","3","Inspeção rotina","nao_conforme"],["OS-002","Empresa ABC","2025-04-20","Maria Santos","50","0","OK","conforme"]]);
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Inspeções");XLSX.writeFile(wb,"berthax_modelo.xlsx");
+  }
+
+  function doImport(){
+    dispatch({type:"IMPORT_OS",payload:rows,skipDup:skip});
+    dispatch({type:"SHOW_TOAST",msg:t.importedOK.replace("{n}",skip?rows.filter(r=>!state.osList.map(o=>o.os).includes(r.os)).length:rows.length)});
+  }
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:20,overflowY:"auto"}}>
+      <div style={{background:th.surface,borderRadius:18,padding:28,width:620,maxWidth:"96vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)"}}>
+        <div style={{fontSize:17,fontWeight:700,color:th.accent,marginBottom:4}}>{t.importXLSTitle}</div>
+        <div style={{fontSize:12,color:th.textMuted,marginBottom:16}}>{t.importXLSInfo}</div>
+
+        <div style={{background:th.surface2,borderRadius:10,padding:14,marginBottom:16,border:`1px solid ${th.border2}`}}>
+          <div style={{fontWeight:600,color:th.text,marginBottom:8,fontSize:12}}>{t.importXLSCols}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+            {["Numero_OS *","Cliente *","Data_Inspecao *","Tecnico","Quantidade_Total","Total_Nao_Conformidades","Observacoes","Status"].map(c=>(
+              <span key={c} style={{fontSize:10,background:c.includes("*")?"#0ea5e922":"#1e293b",color:c.includes("*")?"#38bdf8":th.textSub,padding:"2px 8px",borderRadius:99,border:`1px solid ${c.includes("*")?"#38bdf8":th.border2}`,fontFamily:"monospace"}}>{c}</span>
+            ))}
+          </div>
+          <button onClick={dlTemplate} style={{...B("#1e3a5f","#7dd3fc"),fontSize:11,padding:"5px 12px"}}>{t.downloadTemplate}</button>
+        </div>
+
+        {rows.length===0&&(
+          <div onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)}
+            onDrop={e=>{e.preventDefault();setDrag(false);const f=e.dataTransfer.files[0];if(f)readFile(f);}}
+            onClick={()=>fRef.current&&fRef.current.click()}
+            style={{border:`2px dashed ${drag?th.accent:th.border2}`,borderRadius:12,padding:"32px 20px",textAlign:"center",cursor:"pointer",background:drag?th.accent+"11":"transparent",marginBottom:14}}>
+            <div style={{fontSize:32,marginBottom:6}}>📂</div>
+            <div style={{color:drag?th.accent:th.textMuted,fontSize:13}}>{t.importXLSDrop}</div>
+            <div style={{fontSize:11,color:th.textMuted,marginTop:4}}>.xlsx · .xls · .csv</div>
+          </div>
+        )}
+        <input ref={fRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f)readFile(f);e.target.value="";}}/>
+
+        {err&&<div style={{color:"#f87171",background:"#450a0a",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12}}>{err}</div>}
+
+        {rows.length>0&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontWeight:600,color:th.text,fontSize:13}}>{t.importXLSPreview}: <span style={{color:th.accent}}>{rows.length} OS</span></span>
+              <button onClick={()=>{setRows([]);setErr("");}} style={{...B(th.surface2,th.textMuted),fontSize:11,padding:"3px 10px"}}>✕ Limpar</button>
+            </div>
+            <div style={{maxHeight:200,overflowY:"auto",borderRadius:10,border:`1px solid ${th.border2}`,marginBottom:12}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead>
+                  <tr style={{background:th.surface2,position:"sticky",top:0}}>
+                    {["OS","Cliente","Data","Técnico","Qtd","NC","Status"].map(h=>(
+                      <th key={h} style={{padding:"6px 8px",textAlign:"left",color:th.textMuted,fontWeight:600,borderBottom:`1px solid ${th.border2}`,whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r,i)=>(
+                    <tr key={i} style={{borderBottom:`1px solid ${th.border}`,background:i%2===0?th.surface:th.surface2}}>
+                      <td style={{padding:"6px 8px",color:th.accent,fontWeight:600}}>{r.os}</td>
+                      <td style={{padding:"6px 8px",color:th.text,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.cliente||"—"}</td>
+                      <td style={{padding:"6px 8px",color:th.textSub,whiteSpace:"nowrap"}}>{r.dataInspecao||"—"}</td>
+                      <td style={{padding:"6px 8px",color:th.textSub,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.tecnico||"—"}</td>
+                      <td style={{padding:"6px 8px",color:th.textSub,textAlign:"center"}}>{r.quantidadeTotal||"—"}</td>
+                      <td style={{padding:"6px 8px",color:parseInt(r.totalNaoConformidades)>0?"#f97316":th.textSub,fontWeight:parseInt(r.totalNaoConformidades)>0?700:400,textAlign:"center"}}>{r.totalNaoConformidades||"0"}</td>
+                      <td style={{padding:"6px 8px"}}><span style={{fontSize:10,padding:"2px 6px",borderRadius:99,background:r.status==="conforme"?"#14532d":"#450a0a",color:r.status==="conforme"?"#22c55e":"#ef4444"}}>{r.status==="conforme"?"✅":"⚠️"}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+              <div onClick={()=>setSkip(!skip)} style={{width:38,height:21,borderRadius:99,background:skip?"#0ea5e9":th.border2,cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                <div style={{position:"absolute",top:2,left:skip?18:2,width:17,height:17,borderRadius:99,background:"#fff",transition:"left 0.2s"}}/>
+              </div>
+              <span style={{fontSize:12,color:th.textSub,cursor:"pointer"}} onClick={()=>setSkip(!skip)}>{t.importXLSSkip}</span>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={doImport} style={{flex:1,padding:11,borderRadius:10,border:"none",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                {t.importXLSImport} ({rows.length} OS)
+              </button>
+              <button onClick={()=>dispatch({type:"CLOSE_IMPORT"})} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.cancelar}</button>
+            </div>
+          </div>
+        )}
+        {rows.length===0&&(
+          <div style={{display:"flex",gap:10,marginTop:4}}>
+            <button onClick={()=>fRef.current&&fRef.current.click()} style={{flex:1,padding:11,borderRadius:10,border:"none",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>{t.importXLSBtn}</button>
+            <button onClick={()=>dispatch({type:"CLOSE_IMPORT"})} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.cancelar}</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SaveModal({th,t,I,state,dispatch,confirmLocalSave,saveToGoogleDrive,saveToOneDrive,DEFAULT_FILENAME}){
+  const [localName,setLocalName]=useState(state.jsonFilename||DEFAULT_FILENAME);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000}}>
+      <div style={{background:th.surface,borderRadius:18,padding:30,width:480,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)"}}>
+        <div style={{fontSize:18,fontWeight:700,color:th.accent,marginBottom:6}}>
+          💾 {state.lang==="en"?"Choose Save Location":state.lang==="es"?"Elegir Ubicación de Guardado":"Escolher Local de Salvamento"}
+        </div>
+        <div style={{fontSize:13,color:th.textMuted,marginBottom:22,lineHeight:1.6}}>
+          {state.lang==="en"?"After the first save, the file will always be overwritten in the same location automatically.":
+           state.lang==="es"?"Después del primer guardado, el archivo siempre será sobrescrito en el mismo lugar automáticamente.":
+           "Após o primeiro salvamento, o arquivo sempre será sobrescrito no mesmo local automaticamente."}
+        </div>
+        <div style={{background:th.surface2,borderRadius:12,padding:18,marginBottom:14,border:`1px solid ${th.border2}`}}>
+          <div style={{fontWeight:700,color:th.text,marginBottom:4}}>🖥️ {state.lang==="en"?"Save on this Computer":state.lang==="es"?"Guardar en este Equipo":"Salvar neste Computador"}</div>
+          <div style={{fontSize:12,color:th.textMuted,marginBottom:12}}>{state.lang==="en"?"Downloads the JSON file to your device":state.lang==="es"?"Descarga el JSON en su dispositivo":"Faz o download do JSON no seu dispositivo"}</div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input value={localName} onChange={e=>setLocalName(e.target.value)} placeholder={DEFAULT_FILENAME} style={{...I(),flex:1}}/>
+            <span style={{color:th.textMuted,fontSize:13,whiteSpace:"nowrap"}}>.json</span>
+          </div>
+          <button onClick={()=>confirmLocalSave(localName)} style={{marginTop:12,width:"100%",padding:"10px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#166534,#22c55e)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            💾 {state.lang==="en"?"Save to Computer":state.lang==="es"?"Guardar en Equipo":"Salvar no Computador"}
+          </button>
+        </div>
+        <div style={{background:th.surface2,borderRadius:12,padding:18,marginBottom:18,border:`1px solid ${th.border2}`}}>
+          <div style={{fontWeight:700,color:th.text,marginBottom:4}}>☁️ {state.lang==="en"?"Save to Cloud":state.lang==="es"?"Guardar en la Nube":"Salvar na Nuvem"}</div>
+          <div style={{fontSize:12,color:th.textMuted,marginBottom:14}}>{state.lang==="en"?"File is downloaded then your cloud opens":state.lang==="es"?"Se descarga el archivo y abre la nube":"Arquivo baixado e a nuvem abre automaticamente"}</div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>{dispatch({type:"SET_SAVED_FILENAME",payload:localName||DEFAULT_FILENAME});saveToGoogleDrive();}}
+              style={{flex:1,padding:"11px 8px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#1a73e8,#34a4f4)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+              🟦 Google Drive
+            </button>
+            <button onClick={()=>{dispatch({type:"SET_SAVED_FILENAME",payload:localName||DEFAULT_FILENAME});saveToOneDrive();}}
+              style={{flex:1,padding:"11px 8px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0078d4,#38a3f1)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+              🟦 OneDrive
+            </button>
+          </div>
+        </div>
+        <button onClick={()=>dispatch({type:"CLOSE_SAVE_MODAL"})} style={{width:"100%",padding:10,borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textMuted,cursor:"pointer"}}>{t.cancelar}</button>
+      </div>
+    </div>
+  );
+}
+
+function AppWrapper(){
+  const [user,setUser]=useState(null);
+  const [usuariosOnline,setUsuariosOnline]=useState([]);
+  
+  // Temas (já estão definidos abaixo, vou usar a cópia)
+  const THEMES_LOCAL={
+    dark:{bg:"#1A1A1A",surface:"#242424",surface2:"#2E2E2E",border:"#3A3A3A",border2:"#484848",text:"#F5F5F5",textMuted:"#888888",textSub:"#AAAAAA",accent:"#F47B20",accentBtn:"#F47B20",header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)"},
+    light:{bg:"#F5F5F5",surface:"#FFFFFF",surface2:"#F0F0F0",border:"#E0E0E0",border2:"#CCCCCC",text:"#1A1A1A",textMuted:"#888888",textSub:"#555555",accent:"#F47B20",accentBtn:"#F47B20",header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)"},
+  };
+  
+  const thLogin=THEMES_LOCAL.dark;
+  
+  // Carregar usuários conectados quando user fizer login
+  useEffect(()=>{
+    if(!user) return;
+    
+    const carregarUsuarios=async()=>{
+      const {data}=await supabase
+        .from("usuarios_conectados")
+        .select("*")
+        .order("timestamp",{ascending:false})
+        .limit(50);
+      
+      if(data){
+        const agora=new Date();
+        const usuariosValidos=data.filter(u=>{
+          const loginTime=new Date(u.timestamp);
+          const diff=(agora-loginTime)/1000/60;
+          return diff<30;
+        });
+        setUsuariosOnline(usuariosValidos);
+      }
+    };
+    
+    carregarUsuarios();
+    const interval=setInterval(carregarUsuarios,10000);
+    
+    const subscription=supabase
+      .channel("usuarios")
+      .on("postgres_changes",{event:"*",schema:"public",table:"usuarios_conectados"},(payload)=>{
+        carregarUsuarios();
+      })
+      .subscribe();
+    
+    return ()=>{
+      clearInterval(interval);
+      subscription.unsubscribe();
+    };
+  },[user]);
+  
+  if(!user){
+    return <LoginScreen onLogin={(userData)=>setUser(userData)} th={thLogin}/>;
+  }
+  
+  const handleLogoutClick=async()=>{
+    if(user.userId){
+      await supabase.from("usuarios_conectados").delete().eq("id",user.userId).catch(()=>{});
+    }
+    setUser(null);
+  };
+  
+  return(
+    <>
+      <AppOriginal user={user} onLogout={handleLogoutClick} usuariosOnline={usuariosOnline}/>
+    </>
+  );
+}
+
+function AppOriginal({user,onLogout,usuariosOnline}){
+
+  const [state,dispatch]=useReducer(reducer,initialState);
+  const [tmpLang,setTmpLang]=useState("pt");
+  const [tmpTheme,setTmpTheme]=useState("dark");
+  const [tmpEmail,setTmpEmail]=useState("");
+  const [tmpFilename,setTmpFilename]=useState(DEFAULT_FILENAME);
+  const [tmpAutoSave,setTmpAutoSave]=useState(false);
+  const [autoLoadBanner,setAutoLoadBanner]=useState(null); // null | "loading" | "ready" | "done" | "error" | "no_handle"
+  const [availableTecnicos,setAvailableTecnicos]=useState(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem('berthax_tecnicos')||'null');
+      if(Array.isArray(saved)&&saved.length>0)return saved;
+    }catch(e){ }
+    return [...TECHNICOS];
+  });
+  const [novoTecnico,setNovoTecnico]=useState("");
+  const fileRefs=useRef({});
+  const confirmCallbackRef=useRef(null);
+  function showConfirm(msg,onConfirm){confirmCallbackRef.current=onConfirm;dispatch({type:"SHOW_CONFIRM",msg});}
+
+  const importRef=useRef();
+  const th=THEMES[state.theme],t=T[state.lang],sev=SEV_LABEL_MAP[state.lang];
+
+  useEffect(()=>{
+    try{localStorage.setItem('berthax_tecnicos',JSON.stringify(availableTecnicos));}catch(e){}
+  },[availableTecnicos]);
+
+  // ── File System Access API handle (persisted across sessions via IndexedDB) ──
+  const fsHandleRef=useRef(null);
+  const FS_SUPPORTED=typeof window!=="undefined"&&"showSaveFilePicker" in window;
+  const IDB_KEY="berthax_fs_handle";
+  const LS_DATA_KEY="berthax_data_v1";
+  const LS_FNAME_KEY="berthax_fname";
+
+  // ── Persist data to localStorage on every change ──
+  useEffect(()=>{
+    try{
+      const payload={osList:state.osList,tracker:state.tracker,externo:state.externo,coleta:state.coleta};
+      localStorage.setItem(LS_DATA_KEY,JSON.stringify(payload));
+    }catch(e){}
+  },[state.osList,state.tracker,state.externo]);
+
+  // ── On first load: try auto-load from FS handle, fallback to localStorage ──
+  useEffect(()=>{
+    initApp();
+  },[]);
+
+  async function initApp(){
+    // Always restore fname label first
+    try{
+      const fname=localStorage.getItem(LS_FNAME_KEY);
+      if(fname)dispatch({type:"SET_SAVED_FILENAME",payload:fname});
+    }catch(e){}
+
+    if(!FS_SUPPORTED){
+      // No FS API — just restore from localStorage silently
+      loadFromLocalStorage(true);
+      return;
+    }
+
+    // Try to get the stored handle from IndexedDB
+    const handle=await getHandleFromIDB();
+    if(!handle){
+      // No previous file linked — load from localStorage silently
+      loadFromLocalStorage(true);
+      setAutoLoadBanner("no_handle");
+      setTimeout(()=>setAutoLoadBanner(null),4000);
+      return;
+    }
+
+    fsHandleRef.current=handle;
+
+    // Check if permission is already granted (same Chrome session)
+    try{
+      const perm=await handle.queryPermission({mode:"readwrite"});
+      if(perm==="granted"){
+        // Auto-load directly — no user gesture needed!
+        await doAutoLoad(handle);
+        return;
+      }
+    }catch(e){}
+
+    // Permission not granted yet — show banner asking 1 click
+    const fname=handle.name||localStorage.getItem(LS_FNAME_KEY)||"arquivo";
+    loadFromLocalStorage(false); // show localStorage data while waiting
+    setAutoLoadBanner({state:"ready",fname});
+  }
+
+  function loadFromLocalStorage(silent){
+    try{
+      const raw=localStorage.getItem(LS_DATA_KEY);
+      if(raw){
+        const p=JSON.parse(raw);
+        if(p&&(p.osList||p.tracker||p.externo)){
+          dispatch({type:"LOAD_DATA",payload:{osList:p.osList||[],tracker:p.tracker||[],externo:p.externo||[]}});
+          if(!silent)dispatch({type:"SHOW_TOAST",msg:"📋 Dados do navegador carregados"});
+        }
+      }
+    }catch(e){}
+  }
+
+  async function doAutoLoad(handle){
+    setAutoLoadBanner({state:"loading",fname:handle.name});
+    try{
+      const file=await handle.getFile();
+      const text=await file.text();
+      const p=JSON.parse(text);
+      dispatch({type:"LOAD_DATA",payload:{osList:p.osList||p,tracker:p.tracker||[],externo:p.externo||[]}});
+      const fname=handle.name.replace(/\.json$/i,"");
+      dispatch({type:"SET_SAVED_FILENAME",payload:fname});
+      localStorage.setItem(LS_FNAME_KEY,fname);
+      setAutoLoadBanner({state:"done",fname:handle.name});
+      setTimeout(()=>setAutoLoadBanner(null),3000);
+    }catch(e){
+      loadFromLocalStorage(false);
+      setAutoLoadBanner({state:"error",fname:handle.name});
+      setTimeout(()=>setAutoLoadBanner(null),5000);
+    }
+  }
+
+  // Called when user clicks the banner button
+  async function bannerLoad(){
+    if(!fsHandleRef.current)return;
+    try{
+      const perm=await fsHandleRef.current.requestPermission({mode:"readwrite"});
+      if(perm==="granted"){
+        await doAutoLoad(fsHandleRef.current);
+      } else {
+        loadFromLocalStorage(false);
+        setAutoLoadBanner(null);
+      }
+    }catch(e){
+      loadFromLocalStorage(false);
+      setAutoLoadBanner(null);
+    }
+  }
+
+  // ── IndexedDB helpers ──
+  function openIDB(){
+    return new Promise((res,rej)=>{
+      const req=indexedDB.open("berthax_db",1);
+      req.onupgradeneeded=e=>e.target.result.createObjectStore("handles");
+      req.onsuccess=e=>res(e.target.result);
+      req.onerror=()=>rej();
+    });
+  }
+  async function saveHandleToIDB(handle){
+    try{
+      const db=await openIDB();
+      const tx=db.transaction("handles","readwrite");
+      tx.objectStore("handles").put(handle,IDB_KEY);
+    }catch(e){}
+  }
+  async function getHandleFromIDB(){
+    try{
+      const db=await openIDB();
+      return await new Promise((res)=>{
+        const tx=db.transaction("handles","readonly");
+        const req=tx.objectStore("handles").get(IDB_KEY);
+        req.onsuccess=e=>res(e.target.result||null);
+        req.onerror=()=>res(null);
+      });
+    }catch(e){return null;}
+  }
+  // keep old name for compatibility
+  async function restoreHandleFromIDB(){return await getHandleFromIDB();}
+  async function requestHandlePermission(){
+    if(!fsHandleRef.current)return false;
+    try{
+      const perm=await fsHandleRef.current.queryPermission({mode:"readwrite"});
+      if(perm==="granted")return true;
+      const req=await fsHandleRef.current.requestPermission({mode:"readwrite"});
+      return req==="granted";
+    }catch(e){return false;}
+  }
+
+  // ── Get JSON data ──
+  function getJSONData(){
+    return JSON.stringify({version:"1.0",exportedAt:new Date().toISOString(),osList:state.osList,tracker:state.tracker,externo:state.externo},null,2);
+  }
+  function getJSONBlob(){return new Blob([getJSONData()],{type:"application/json"});}
+
+  // ── Save via File System Access API (real overwrite at chosen path) ──
+  async function saveViaFSAPI(){
+    let handle=fsHandleRef.current;
+    // If no handle yet, ask user to pick location
+    if(!handle){
+      try{
+        handle=await window.showSaveFilePicker({
+          suggestedName:(state.jsonFilename||DEFAULT_FILENAME)+".json",
+          types:[{description:"JSON",accept:{"application/json":[".json"]}}],
+        });
+        fsHandleRef.current=handle;
+        await saveHandleToIDB(handle);
+        const fname=handle.name.replace(/\.json$/i,"");
+        dispatch({type:"SET_SAVED_FILENAME",payload:fname});
+        localStorage.setItem(LS_FNAME_KEY,fname);
+      }catch(e){
+        if(e.name!=="AbortError")dispatch({type:"SHOW_TOAST",msg:"❌ Erro ao escolher arquivo."});
+        return false;
+      }
+    } else {
+      // Ensure we still have permission
+      const ok=await requestHandlePermission();
+      if(!ok){
+        // Permission denied – ask again
+        try{
+          handle=await window.showSaveFilePicker({
+            suggestedName:(state.savedFileName||state.jsonFilename||DEFAULT_FILENAME)+".json",
+            types:[{description:"JSON",accept:{"application/json":[".json"]}}],
+          });
+          fsHandleRef.current=handle;
+          await saveHandleToIDB(handle);
+          const fname=handle.name.replace(/\.json$/i,"");
+          dispatch({type:"SET_SAVED_FILENAME",payload:fname});
+          localStorage.setItem(LS_FNAME_KEY,fname);
+        }catch(e){
+          if(e.name!=="AbortError")dispatch({type:"SHOW_TOAST",msg:"❌ Sem permissão para salvar."});
+          return false;
+        }
+      }
+    }
+    try{
+      const writable=await fsHandleRef.current.createWritable();
+      await writable.write(getJSONData());
+      await writable.close();
+      return true;
+    }catch(e){
+      dispatch({type:"SHOW_TOAST",msg:"❌ Erro ao gravar arquivo."});
+      return false;
+    }
+  }
+
+  // ── Open via File System Access API (real path picker) ──
+  async function openViaFSAPI(){
+    try{
+      const [handle]=await window.showOpenFilePicker({
+        types:[{description:"JSON",accept:{"application/json":[".json"]}}],
+      });
+      fsHandleRef.current=handle;
+      await saveHandleToIDB(handle);
+      const fname=handle.name.replace(/\.json$/i,"");
+      dispatch({type:"SET_SAVED_FILENAME",payload:fname});
+      localStorage.setItem(LS_FNAME_KEY,fname);
+      const file=await handle.getFile();
+      const text=await file.text();
+      const p=JSON.parse(text);
+      dispatch({type:"LOAD_DATA",payload:{osList:p.osList||p,tracker:p.tracker||[],externo:p.externo||[]}});
+      dispatch({type:"SHOW_TOAST",msg:"✅ "+fname+".json carregado!"});
+    }catch(e){
+      if(e.name!=="AbortError")dispatch({type:"SHOW_TOAST",msg:t.loadError});
+    }
+  }
+
+  // ── Main save entry point ──
+  async function saveJSON(silent){
+    if(state.osList.length===0&&!silent){dispatch({type:"SHOW_TOAST",msg:t.noData});return;}
+    if(FS_SUPPORTED){
+      const ok=await saveViaFSAPI();
+      if(ok&&!silent){
+        const fname=fsHandleRef.current?fsHandleRef.current.name:(state.savedFileName||DEFAULT_FILENAME)+".json";
+        dispatch({type:"SHOW_TOAST",msg:"💾 "+fname+" salvo!"});
+      }
+    } else {
+      // Fallback: download
+      if(state.savedFileName){
+        saveJSONDownload(state.savedFileName);
+        if(!silent)dispatch({type:"SHOW_TOAST",msg:"💾 "+state.savedFileName+".json baixado!"});
+      } else {
+        dispatch({type:"OPEN_SAVE_MODAL"});
+      }
+    }
+  }
+
+  // ── Fallback: classic download ──
+  function saveJSONDownload(fname){
+    const blob=getJSONBlob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=(fname||DEFAULT_FILENAME)+".json";a.click();URL.revokeObjectURL(url);
+  }
+  function saveJSONToLocal(fname){saveJSONDownload(fname);}
+
+  // ── confirmLocalSave (used by SaveModal fallback) ──
+  function confirmLocalSave(fname){
+    const finalName=fname||(state.jsonFilename||DEFAULT_FILENAME);
+    dispatch({type:"SET_SAVED_FILENAME",payload:finalName});
+    localStorage.setItem(LS_FNAME_KEY,finalName);
+    saveJSONDownload(finalName);
+    dispatch({type:"SHOW_TOAST",msg:"✅ "+finalName+".json "+(state.lang==="en"?"saved!":state.lang==="es"?"guardado!":"salvo!")});
+  }
+
+  function saveToGoogleDrive(){
+    saveJSONDownload(state.savedFileName||state.jsonFilename||DEFAULT_FILENAME);
+    setTimeout(()=>{window.open("https://drive.google.com/drive/my-drive","_blank");},800);
+    dispatch({type:"CLOSE_CLOUD_MODAL"});
+    dispatch({type:"SHOW_TOAST",msg:"☁️ "+(state.lang==="en"?"Opening Google Drive...":state.lang==="es"?"Abriendo Google Drive...":"Abrindo Google Drive...")});
+  }
+  function saveToOneDrive(){
+    saveJSONDownload(state.savedFileName||state.jsonFilename||DEFAULT_FILENAME);
+    setTimeout(()=>{window.open("https://onedrive.live.com","_blank");},800);
+    dispatch({type:"CLOSE_CLOUD_MODAL"});
+    dispatch({type:"SHOW_TOAST",msg:"☁️ "+(state.lang==="en"?"Opening OneDrive...":state.lang==="es"?"Abriendo OneDrive...":"Abrindo OneDrive...")});
+  }
+
+  // ── Load JSON (classic file input fallback) ──
+  function loadJSON(e){
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();
+    r.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.osList||Array.isArray(p)){dispatch({type:"LOAD_DATA",payload:{osList:p.osList||p,tracker:p.tracker||[],externo:p.externo||[],coleta:p.coleta||[]}});dispatch({type:"SHOW_TOAST",msg:t.loadedOK});}else throw 0;}catch{dispatch({type:"SHOW_TOAST",msg:t.loadError});}};
+    r.readAsText(file);e.target.value="";
+  }
+
+  // ── Auto-save when data changes (if enabled + FS handle available) ──
+  useEffect(()=>{
+    if(!state.autoSave)return;
+    if(FS_SUPPORTED&&fsHandleRef.current){
+      saveViaFSAPI();
+    } else if(state.savedFileName){
+      saveJSONDownload(state.savedFileName);
+    }
+  },[state.osList,state.tracker,state.externo,state.coleta]);
+
+  useEffect(()=>{if(state.toast){const tm=setTimeout(()=>dispatch({type:"HIDE_TOAST"}),3000);return()=>clearTimeout(tm);}},[state.toast]);
+
+  function sendEmail(){
+    const{os,email}=state.emailModal;if(!email)return;
+    exportPDF(os,state.lang);
+    const subj=encodeURIComponent(`Relatório OS #${os.os} | Berthax Surgical LTDA`);
+    const body=encodeURIComponent(`OS #${os.os}\n${t.cliente}: ${os.cliente||"—"}\n${t.tecnico}: ${os.tecnico||"—"}\n\nBerthax Surgical LTDA`);
+    setTimeout(()=>{window.location.href=`mailto:${email}?subject=${subj}&body=${body}`;},800);
+    dispatch({type:"CLOSE_EMAIL"});
+  }
+  function handleFoto(ncId,e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>dispatch({type:"UPDATE_NC",id:ncId,field:"foto",value:ev.target.result});r.readAsDataURL(file);}
+  function handleRelatorio(){exportRelatMensal(state.relMes,state.relAno,state.osList,state.lang,state.relEmail||null);dispatch({type:"CLOSE_REL"});dispatch({type:"SHOW_TOAST",msg:"📊 Relatório gerado!"});}
+
+  const I=(extra)=>({padding:"10px 14px",borderRadius:10,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:14,width:"100%",boxSizing:"border-box",fontFamily:"'Inter','Segoe UI',sans-serif",...(extra||{})});
+  const L={fontSize:12,fontWeight:600,color:th.textMuted,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"};
+  const C={background:th.surface,borderRadius:16,padding:20,border:`1px solid ${th.border}`};
+  const B=(bg,color,extra)=>({padding:"8px 16px",borderRadius:10,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:bg,color,fontFamily:"'Inter','Segoe UI',sans-serif",...(extra||{})});
+  const hc="#ffffff";
+  const filtered=state.osList.filter(o=>{
+    const textMatch=[o.os,o.cliente,o.tecnico].some(v=>String(v||"").toLowerCase().includes(state.filterText.toLowerCase()));
+    const statusMatch=(state.filterStatus==="all"||o.status===state.filterStatus);
+    const tecnicoMatch=(state.filterTecnico==="all")||(
+      Array.isArray(o.tecnico)?o.tecnico.includes(state.filterTecnico):String(o.tecnico||"")===state.filterTecnico
+    );
+    return textMatch&&statusMatch&&tecnicoMatch;
+  });
+  const total=state.osList.length,conformes=state.osList.filter(o=>o.status==="conforme").length,taxa=total>0?Math.round((conformes/total)*100):0;
+  const totalPecasInsp=state.osList.reduce((a,o)=>a+(parseInt(o.quantidadeTotal)||0),0);
+  const totalNCsGeral=state.osList.reduce((a,o)=>a+(parseInt(o.totalNaoConformidades)||o.naoConformidades.length),0);
+
+  return(
+  <div style={{minHeight:"100vh",background:th.bg,color:th.text,fontFamily:"'Inter','Segoe UI',sans-serif",display:"flex",flexDirection:"column"}}>
+
+    {/* HEADER */}
+    <div style={{background:"linear-gradient(135deg,#1E2038 0%,#0D0F1C 100%)",borderBottom:`1px solid #2D2F4A`,padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:0,flexShrink:0}}>
+          {/* Berthax logo mark — orange square + grey triangle */}
+          <div style={{width:38,height:38,background:"#F47B20",borderRadius:"6px 0 0 6px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <polygon points="11,2 20,20 2,20" fill="#2E2E2E" opacity="0.9"/>
+              <polygon points="11,7 17,19 5,19" fill="#fff" opacity="0.25"/>
+            </svg>
+          </div>
+          <div style={{background:"#2E2E2E",borderRadius:"0 6px 6px 0",padding:"0 10px",height:38,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+            <div style={{fontSize:13,fontWeight:900,color:"#fff",letterSpacing:1.5,lineHeight:1}}>BERTHAX</div>
+            <div style={{fontSize:8,fontWeight:600,color:"rgba(255,255,255,0.5)",letterSpacing:1,lineHeight:1,marginTop:2}}>SURGICAL LTDA</div>
+          </div>
+        </div>
+        <div style={{width:1,height:28,background:"rgba(255,255,255,0.12)"}}/>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",fontWeight:500}}>{t.appSub}</div>
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        {["dashboard","history","tracker"].map(v=>(
+          <button key={v} onClick={()=>dispatch({type:"SET_VIEW",payload:v})}
+            style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"'Inter','Segoe UI',sans-serif",
+              background:state.view===v?"linear-gradient(135deg,#F47B20,#FF9A45)":"rgba(255,255,255,0.07)",
+              color:state.view===v?"#fff":"rgba(255,255,255,0.5)",
+              transition:"all 0.15s",
+              boxShadow:state.view===v?"0 2px 12px rgba(244,123,32,0.4)":"none"}}>
+            {v==="dashboard"?t.dashboard:v==="history"?t.history:v==="tracker"?"🔧 Acompanhamento":"📦 Coleta"}
+          </button>
+        ))}
+        <div style={{width:1,height:24,background:"rgba(255,255,255,0.1)",margin:"0 2px"}}/>
+        <button onClick={()=>dispatch({type:"NEW_OS"})} style={{padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'Inter','Segoe UI',sans-serif",background:"linear-gradient(135deg,#F47B20,#FF9A45)",color:"#fff",boxShadow:"0 2px 12px rgba(244,123,32,0.4)"}}>{t.newOS}</button>
+        <button onClick={()=>dispatch({type:"OPEN_IMPORT"})} title={t.importXLS} style={{padding:"7px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:14,background:"rgba(244,123,32,0.15)",color:"#F47B20"}}>📊</button>
+        <button onClick={()=>saveJSON(false)} title={state.savedFileName?`Sobrescrever: ${state.savedFileName}.json`:t.saveJSON} style={{padding:"7px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:14,background:state.savedFileName?"rgba(52,211,153,0.15)":"rgba(52,211,153,0.1)",color:"#34d399"}}>{state.savedFileName?"💾✔":"💾"}</button>
+        <button onClick={()=>dispatch({type:"OPEN_CLOUD_MODAL"})} title="Salvar na Nuvem" style={{padding:"7px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:14,background:"rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.5)"}}>☁️</button>
+        <button onClick={()=>FS_SUPPORTED?openViaFSAPI():importRef.current&&importRef.current.click()} title={t.loadJSON} style={{padding:"7px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:14,background:"rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.5)"}}>📂</button>
+        <input ref={importRef} type="file" accept=".json" style={{display:"none"}} onChange={loadJSON}/>
+        <button onClick={()=>{setTmpLang(state.lang);setTmpTheme(state.theme);setTmpEmail(state.emailPadrao);setTmpFilename(state.jsonFilename);setTmpAutoSave(state.autoSave);dispatch({type:"TOGGLE_SETTINGS"});}}
+          style={{padding:"7px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:15,background:"rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.6)"}}>⚙️</button>
+        <div style={{width:1,height:24,background:"rgba(255,255,255,0.1)",margin:"0 2px"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"rgba(255,255,255,0.7)"}}>
+          <span>{user.nome}</span>
+          <span style={{color:"rgba(255,255,255,0.3)"}}>|</span>
+          <span>{user.cargo}</span>
+        </div>
+        <button onClick={onLogout} style={{padding:"7px 14px",borderRadius:8,border:"1px solid #dc2626",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"'Inter','Segoe UI',sans-serif",background:"rgba(220,38,38,0.1)",color:"#f87171",transition:"all 0.15s"}}>🔓 Sair</button>
+      </div>
+    </div>
+
+    {/* ── AUTO-LOAD BANNER ── */}
+    {autoLoadBanner&&autoLoadBanner.state==="ready"&&(
+      <div style={{background:"linear-gradient(135deg,#1e3a5f,#0f2b4a)",borderBottom:`2px solid ${th.accent}`,padding:"12px 24px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        <span style={{fontSize:20}}>📂</span>
+        <div style={{flex:1,minWidth:180}}>
+          <div style={{fontWeight:700,color:"#e2e8f0",fontSize:13}}>Arquivo vinculado encontrado</div>
+          <div style={{fontSize:12,color:"#94a3b8",marginTop:1}}>
+            <span style={{color:th.accent,fontFamily:"monospace"}}>{autoLoadBanner.fname}</span>
+            {" "}— clique para carregar agora
+          </div>
+        </div>
+        <button onClick={bannerLoad}
+          style={{padding:"9px 22px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0ea5e9,#38bdf8)",color:"#0f172a",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
+          📂 Carregar arquivo
+        </button>
+        <button onClick={()=>{loadFromLocalStorage(false);setAutoLoadBanner(null);}}
+          style={{padding:"9px 14px",borderRadius:10,border:"1px solid #334155",background:"transparent",color:"#64748b",fontSize:12,cursor:"pointer",whiteSpace:"nowrap"}}>
+          Usar dados do navegador
+        </button>
+      </div>
+    )}
+    {autoLoadBanner&&autoLoadBanner.state==="loading"&&(
+      <div style={{background:"#1e3a5f",borderBottom:`1px solid ${th.accent}`,padding:"10px 24px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:16,animation:"spin 1s linear infinite"}}>⏳</span>
+        <span style={{color:"#93c5fd",fontSize:13}}>Carregando <span style={{fontFamily:"monospace",color:th.accent}}>{autoLoadBanner.fname}</span>...</span>
+      </div>
+    )}
+    {autoLoadBanner&&autoLoadBanner.state==="done"&&(
+      <div style={{background:"#14532d",borderBottom:"1px solid #22c55e",padding:"10px 24px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:16}}>✅</span>
+        <span style={{color:"#86efac",fontSize:13,fontWeight:600}}><span style={{fontFamily:"monospace"}}>{autoLoadBanner.fname}</span> carregado automaticamente!</span>
+      </div>
+    )}
+    {autoLoadBanner&&autoLoadBanner.state==="error"&&(
+      <div style={{background:"#450a0a",borderBottom:"1px solid #dc2626",padding:"10px 24px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:16}}>⚠️</span>
+        <span style={{color:"#fca5a5",fontSize:13}}>Não foi possível ler <span style={{fontFamily:"monospace"}}>{autoLoadBanner.fname}</span> — usando dados do navegador</span>
+      </div>
+    )}
+
+    {/* ── SAVE STATUS BAR ── */}
+    <div style={{background:state.theme==="dark"?"#1A1A1A":"#EBEBEB",borderBottom:`1px solid ${state.theme==="dark"?"#333":"#D0D0D0"}`,padding:"5px 24px",display:"flex",alignItems:"center",gap:8,fontSize:11,flexWrap:"wrap"}}>
+      {FS_SUPPORTED?(
+        state.savedFileName?(
+          <>
+            <span style={{color:"#34d399",fontWeight:600}}>💾 Auto-save ativo</span>
+            <span style={{color:"#3A3D60"}}>·</span>
+            <span style={{color:"#6B6F9A",fontFamily:"monospace"}}>{state.savedFileName}.json</span>
+            <button onClick={async()=>{
+              try{
+                const handle=await window.showSaveFilePicker({suggestedName:(state.savedFileName||DEFAULT_FILENAME)+".json",types:[{description:"JSON",accept:{"application/json":[".json"]}}]});
+                fsHandleRef.current=handle;
+                await saveHandleToIDB(handle);
+                const fname=handle.name.replace(/\.json$/i,"");
+                dispatch({type:"SET_SAVED_FILENAME",payload:fname});
+                localStorage.setItem(LS_FNAME_KEY,fname);
+                const writable=await handle.createWritable();
+                await writable.write(getJSONData());
+                await writable.close();
+                dispatch({type:"SHOW_TOAST",msg:"📁 Local alterado: "+fname+".json"});
+              }catch(e){}
+            }} style={{marginLeft:"auto",fontSize:10,padding:"2px 8px",borderRadius:6,border:"1px solid #3A3D60",background:"transparent",color:"#6B6F9A",cursor:"pointer"}}>📁 Alterar local</button>
+          </>
+        ):(
+          <>
+            <span style={{color:"#F5A623",fontWeight:600}}>⚠️ Não vinculado</span>
+            <span style={{color:"#3A3D60"}}>· Dados no navegador · Clique 💾 para escolher local</span>
+          </>
+        )
+      ):(
+        state.savedFileName?(
+          <><span style={{color:"#A78BFA",fontWeight:600}}>📥 Modo download</span><span style={{color:"#3A3D60"}}>·</span><span style={{color:"#6B6F9A",fontFamily:"monospace"}}>{state.savedFileName}.json</span></>
+        ):(
+          <><span style={{color:"#F5A623",fontWeight:600}}>⚠️ Não vinculado</span><span style={{color:"#3A3D60"}}>· Clique 💾 para salvar</span></>
+        )
+      )}
+    </div>
+
+    <div style={{padding:"24px",maxWidth:1100,margin:"0 auto",flex:1,width:"100%",boxSizing:"border-box"}}>
+
+      {/* DASHBOARD */}
+      {state.view==="dashboard"&&(
+        <DashboardKPI state={state} dispatch={dispatch} th={th} t={t} C={C} fmtDate={fmtDate}/>
+      )}
+
+      {/* HISTORY */}
+      {state.view==="history"&&(()=>{
+        const sorted=[...filtered].sort((a,b)=>b.createdAt-a.createdAt);
+        // Build month groups
+        const gMap={};const gKeys=[];
+        sorted.forEach(o=>{
+          const d=o.dataInspecao?new Date(o.dataInspecao+"T12:00:00"):new Date(o.createdAt);
+          const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+          if(!gMap[k]){gMap[k]=[];gKeys.push(k);}
+          gMap[k].push(o);
+        });
+        gKeys.sort((a,b)=>b.localeCompare(a));
+        // Year grouping
+        const yMap={};
+        gKeys.forEach(k=>{const y=k.split("-")[0];if(!yMap[y])yMap[y]=[];yMap[y].push(k);});
+        const years=Object.keys(yMap).sort((a,b)=>b-a);
+        return(
+          <div>
+            <div style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
+              <input placeholder={t.search} value={state.filterText} onChange={e=>dispatch({type:"SET_FILTER",payload:e.target.value})} style={{...I(),flex:1,minWidth:160}}/>
+              <select value={state.filterStatus} onChange={e=>dispatch({type:"SET_FILTER_STATUS",payload:e.target.value})} style={{...I(),width:"auto"}}>
+                <option value="all">{t.all}</option><option value="conforme">{t.conforme}</option><option value="nao_conforme">{t.naoConforme}</option>
+              </select>
+              <select value={state.filterTecnico} onChange={e=>dispatch({type:"SET_FILTER_TECNICO",payload:e.target.value})} style={{...I(),width:"auto"}}>
+                <option value="all">Todos Técnicos</option>
+                {availableTecnicos.map(tn=><option key={tn} value={tn}>{tn}</option>)}
+              </select>
+              <button onClick={()=>{dispatch({type:"SET_FILTER",payload:""});dispatch({type:"SET_FILTER_STATUS",payload:"all"});dispatch({type:"SET_FILTER_TECNICO",payload:"all"});}}
+                style={{...B("#f1f5f9","#1f2937"),border:`1px solid ${th.border2}`,whiteSpace:"nowrap",fontSize:12}}>
+                Limpar filtros
+              </button>
+              <button onClick={()=>dispatch({type:"TOGGLE_GROUP"})}
+                style={{...B(state.groupByMonth?th.accent:th.surface2,state.groupByMonth?(state.theme==="dark"?"#0f172a":"#fff"):th.textSub),border:`1px solid ${state.groupByMonth?th.accent:th.border2}`,whiteSpace:"nowrap",fontSize:12}}>
+                📅 {t.groupByMonth}
+              </button>
+              {state.groupByMonth&&gKeys.length>0&&(
+                <>
+                  <button onClick={()=>dispatch({type:"EXPAND_ALL",keys:gKeys})} style={{...B("#1e3a5f","#7dd3fc"),fontSize:11,padding:"6px 10px",whiteSpace:"nowrap"}}>{t.expandAll}</button>
+                  <button onClick={()=>dispatch({type:"COLLAPSE_ALL"})} style={{...B(th.surface2,th.textMuted),border:`1px solid ${th.border2}`,fontSize:11,padding:"6px 10px",whiteSpace:"nowrap"}}>{t.collapseAll}</button>
+                </>
+              )}
+            </div>
+            {filtered.length===0&&<div style={{color:th.textMuted,textAlign:"center",padding:48}}>{t.nenhumaEncontrada}</div>}
+            {!state.groupByMonth?(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {sorted.map(o=><OSCard key={o.id} o={o} dispatch={dispatch} t={t} th={th} B={B} state={state} exportPDF={exportPDF} fmtDate={fmtDate} onConfirmDelete={showConfirm}/>)}
+              </div>
+            ):(
+              <div>
+                {years.map(year=>{
+                  const mKeys=yMap[year];
+                  const anyExpanded=mKeys.some(k=>state.expandedGroups[k]);
+                  const yTotal=mKeys.reduce((s,k)=>s+gMap[k].length,0);
+                  return(
+                    <div key={year} style={{marginBottom:20}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,cursor:"pointer",userSelect:"none"}}
+                        onClick={()=>dispatch({type:anyExpanded?"COLLAPSE_ALL":"EXPAND_ALL",keys:mKeys})}>
+                        <div style={{flex:1,height:2,background:`linear-gradient(to right,${th.accent},transparent)`}}/>
+                        <span style={{fontWeight:800,fontSize:17,color:th.accent,letterSpacing:1}}>📅 {year}</span>
+                        <span style={{fontSize:11,color:th.textMuted,background:th.surface2,padding:"2px 9px",borderRadius:99,border:`1px solid ${th.border2}`}}>{yTotal} OS</span>
+                        <span style={{color:th.accent,fontSize:13}}>{anyExpanded?"▲":"▼"}</span>
+                        <div style={{flex:1,height:2,background:`linear-gradient(to left,${th.accent},transparent)`}}/>
+                      </div>
+                      {mKeys.map(key=>{
+                        const [yr,mo]=key.split("-");
+                        const mName=new Date(parseInt(yr),parseInt(mo)-1,1).toLocaleDateString(state.lang==="en"?"en-US":state.lang==="es"?"es-ES":"pt-BR",{month:"long"});
+                        const items=gMap[key];
+                        const exp=!!state.expandedGroups[key];
+                        const nc=items.reduce((s,o)=>s+(parseInt(o.totalNaoConformidades)||o.naoConformidades.length),0);
+                        const conf=items.filter(o=>o.status==="conforme").length;
+                        return(
+                          <div key={key} style={{marginBottom:8}}>
+                            <div onClick={()=>dispatch({type:"TOGGLE_EXPAND",key})}
+                              style={{display:"flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:10,background:exp?th.surface:th.surface2,border:`1px solid ${exp?th.accent:th.border2}`,cursor:"pointer",userSelect:"none",transition:"border-color 0.15s"}}>
+                              <span style={{color:th.accent,fontSize:14,fontWeight:700}}>{exp?"▾":"▸"}</span>
+                              <span style={{fontWeight:700,color:exp?th.accent:th.text,fontSize:14,minWidth:130,textTransform:"capitalize"}}>{mName} {yr}</span>
+                              <span style={{fontSize:11,color:th.textMuted,background:th.bg,padding:"2px 8px",borderRadius:99,border:`1px solid ${th.border2}`}}>{items.length} OS</span>
+                              <span style={{fontSize:11,color:"#22c55e",background:"#14532d",padding:"2px 7px",borderRadius:99}}>{conf} ✅</span>
+                              {items.length-conf>0&&<span style={{fontSize:11,color:"#ef4444",background:"#450a0a",padding:"2px 7px",borderRadius:99}}>{items.length-conf} ⚠️</span>}
+                              {nc>0&&<span style={{fontSize:11,color:"#f97316",marginLeft:"auto"}}>{nc} NC</span>}
+                            </div>
+                            {exp&&(
+                              <div style={{paddingLeft:12,borderLeft:`2px solid ${th.accent}44`,marginTop:6,display:"flex",flexDirection:"column",gap:8}}>
+                                {items.map(o=><OSCard key={o.id} o={o} dispatch={dispatch} t={t} th={th} B={B} state={state} exportPDF={exportPDF} fmtDate={fmtDate} onConfirmDelete={showConfirm}/>)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* TRACKER - ACOMPANHAMENTO DE OS */}
+      {state.view==="tracker"&&(()=>{
+        const hoje=new Date();hoje.setHours(0,0,0,0);
+        const PRAZO=15;
+        const diasDecorridos=(entrada)=>Math.ceil((hoje-new Date(entrada+"T00:00:00"))/(1000*60*60*24));
+        const vencida=(item)=>item.situacao!=="finalizada"&&item.situacao!=="ag_inspecao"&&item.situacao!=="liberada"&&diasDecorridos(item.dataEntrada)>PRAZO;
+        const quaseVence=(item)=>{const d=diasDecorridos(item.dataEntrada);return item.situacao!=="finalizada"&&item.situacao!=="ag_inspecao"&&item.situacao!=="liberada"&&d>=12&&d<=PRAZO;};
+
+        // ── EXTERNO helpers ──
+        const extVencida=(item)=>{
+          if(item.situacao==="retornada"||!item.dataRetornoPrev)return false;
+          return new Date(item.dataRetornoPrev+"T00:00:00")<hoje;
+        };
+        const extQuaseVence=(item)=>{
+          if(item.situacao==="retornada"||!item.dataRetornoPrev)return false;
+          const diff=Math.ceil((new Date(item.dataRetornoPrev+"T00:00:00")-hoje)/(1000*60*60*24));
+          return diff>=0&&diff<=3;
+        };
+
+        const aguardando=state.tracker.filter(x=>x.situacao==="aguardando");
+        const emManutencao=state.tracker.filter(x=>x.situacao==="manutencao");
+        const finalizada=state.tracker.filter(x=>x.situacao==="finalizada");
+        const agInspecao=state.tracker.filter(x=>x.situacao==="ag_inspecao");
+        const liberada=state.tracker.filter(x=>x.situacao==="liberada");
+        const totalVencidas=state.tracker.filter(vencida).length;
+
+        const extAguardEnvio=state.externo.filter(x=>x.situacao==="aguardando_envio");
+        const extEnviadas=state.externo.filter(x=>x.situacao==="enviada");
+        const extRetornadas=state.externo.filter(x=>x.situacao==="retornada");
+        const extVencidas=state.externo.filter(extVencida).length;
+
+        // ── Badges ──
+        const isLight=state.theme==="light";
+        const SitBadge=({s})=>{
+          const cfg={
+            aguardando:{darkBg:"#1e3a5f",lightBg:"#dbeafe",darkC:"#7dd3fc",lightC:"#1d4ed8",label:"⏳ Aguardando Manutenção"},
+            manutencao:{darkBg:"#422006",lightBg:"#ffedd5",darkC:"#fb923c",lightC:"#c2410c",label:"🔧 Em Manutenção"},
+            finalizada:{darkBg:"#14532d",lightBg:"#dcfce7",darkC:"#86efac",lightC:"#15803d",label:"✅ Finalizada – Ag. Coleta"},
+            ag_inspecao:{darkBg:"#4c1d95",lightBg:"#ede9fe",darkC:"#c084fc",lightC:"#7c3aed",label:"🔍 Aguardando Inspeção"},
+            liberada:{darkBg:"#064e3b",lightBg:"#d1fae5",darkC:"#34d399",lightC:"#059669",label:"🟢 Liberada"},
+          };
+          const k=cfg[s]||cfg.aguardando;
+          return <span style={{fontSize:11,padding:"3px 10px",borderRadius:99,background:isLight?k.lightBg:k.darkBg,color:isLight?k.lightC:k.darkC,fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${isLight?k.lightC+"44":k.darkC+"44"}`}}>{k.label}</span>;
+        };
+        const ExtBadge=({s})=>{
+          const cfg={
+            aguardando_envio:{darkBg:"#1e3a5f",lightBg:"#dbeafe",darkC:"#7dd3fc",lightC:"#1d4ed8",label:"📦 Aguardando Envio"},
+            enviada:{darkBg:"#422006",lightBg:"#ffedd5",darkC:"#fb923c",lightC:"#c2410c",label:"🚚 Enviada"},
+            retornada:{darkBg:"#14532d",lightBg:"#dcfce7",darkC:"#86efac",lightC:"#15803d",label:"✅ Retornada"},
+          };
+          const k=cfg[s]||cfg.aguardando_envio;
+          return <span style={{fontSize:11,padding:"3px 10px",borderRadius:99,background:isLight?k.lightBg:k.darkBg,color:isLight?k.lightC:k.darkC,fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${isLight?k.lightC+"44":k.darkC+"44"}`}}>{k.label}</span>;
+        };
+
+        // ── ColHeader ──
+        const ColHeader=({icon,title,count,darkColor,lightColor,darkBg,lightBg})=>{
+          const color=isLight?lightColor:darkColor;
+          const bg=isLight?lightBg:darkBg;
+          return(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 14px",borderRadius:10,background:bg,border:`1px solid ${isLight?lightColor+"55":darkColor+"55"}`,marginBottom:10}}>
+              <span style={{fontSize:16}}>{icon}</span>
+              <span style={{fontWeight:700,color,fontSize:13}}>{title}</span>
+              <span style={{marginLeft:"auto",fontSize:12,color,background:isLight?"rgba(0,0,0,0.06)":"rgba(0,0,0,0.25)",padding:"2px 9px",borderRadius:99,fontWeight:700}}>{count}</span>
+            </div>
+          );
+        };
+
+        // ── Card interno ──
+        const TrackerCard=({item})=>{
+          const dias=diasDecorridos(item.dataEntrada);
+          const atrasada=vencida(item);
+          const quase=quaseVence(item);
+          return(
+            <div style={{background:th.surface,borderRadius:12,padding:"13px 16px",border:`2px solid ${atrasada?"#dc2626":quase?"#f59e0b":th.border}`,position:"relative"}}>
+              {atrasada&&<div style={{position:"absolute",top:-1,right:10,background:"#dc2626",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 9px",borderRadius:"0 0 7px 7px",letterSpacing:0.5}}>🚨 PRAZO VENCIDO</div>}
+              {quase&&!atrasada&&<div style={{position:"absolute",top:-1,right:10,background:"#f59e0b",color:"#000",fontSize:9,fontWeight:700,padding:"2px 9px",borderRadius:"0 0 7px 7px",letterSpacing:0.5}}>⚠️ VENCE EM BREVE</div>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,color:th.accent,fontSize:14}}>{item.cliente||"—"}</span>
+                    {item.numOs&&<span style={{fontSize:11,color:th.textMuted}}>OS #{item.numOs}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                    <SitBadge s={item.situacao}/>
+                    {item.situacao!=="finalizada"&&item.situacao!=="ag_inspecao"&&item.situacao!=="liberada"&&(
+                      <span style={{fontSize:11,color:atrasada?"#f87171":quase?"#fbbf24":th.textMuted}}>
+                        {fmtDate(item.dataEntrada,"pt")} · {atrasada?`${dias-PRAZO}d atrasado`:`${Math.max(0,PRAZO-dias)}d restantes`}
+                      </span>
+                    )}
+                    {(item.situacao==="finalizada"||item.situacao==="ag_inspecao"||item.situacao==="liberada")&&<span style={{fontSize:11,color:th.textMuted}}>{fmtDate(item.dataEntrada,"pt")}</span>}
+                  </div>
+                  {item.obs&&<div style={{fontSize:11,color:th.textSub,fontStyle:"italic",marginTop:2}}>"{item.obs}"</div>}
+                </div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  {item.situacao==="aguardando"&&<button onClick={()=>dispatch({type:"UPDATE_TRACKER_STATUS",id:item.id,situacao:"manutencao"})} style={{...B(isLight?"#ffedd5":"#422006",isLight?"#c2410c":"#fb923c"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#c2410c44":"transparent"}`}}>→ Manutenção</button>}
+                  {item.situacao==="manutencao"&&<button onClick={()=>dispatch({type:"UPDATE_TRACKER_STATUS",id:item.id,situacao:"finalizada"})} style={{...B(isLight?"#dcfce7":"#14532d",isLight?"#15803d":"#86efac"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#15803d44":"transparent"}`}}>→ Finalizada</button>}
+                  {item.situacao==="finalizada"&&<button onClick={()=>dispatch({type:"UPDATE_TRACKER_STATUS",id:item.id,situacao:"ag_inspecao"})} style={{...B(isLight?"#ede9fe":"#4c1d95",isLight?"#7c3aed":"#c084fc"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#7c3aed44":"transparent"}`}}>→ Ag. Inspeção</button>}
+                  {item.situacao==="ag_inspecao"&&<button onClick={()=>dispatch({type:"UPDATE_TRACKER_STATUS",id:item.id,situacao:"liberada"})} style={{...B(isLight?"#d1fae5":"#064e3b",isLight?"#059669":"#34d399"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#05966944":"transparent"}`}}>→ Liberada</button>}
+                  {item.situacao==="liberada"&&<button onClick={()=>dispatch({type:"UPDATE_TRACKER_STATUS",id:item.id,situacao:"aguardando"})} style={{...B(isLight?"#dbeafe":"#1e3a5f",isLight?"#1d4ed8":"#7dd3fc"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#1d4ed844":"transparent"}`}}>↺ Reabrir</button>}
+                  <button onClick={()=>dispatch({type:"OPEN_TRACKER_MODAL",payload:{...item}})} style={{...B(isLight?"#fff3e8":"#7a3800",isLight?"#c2410c":"#F47B20"),fontSize:10,padding:"4px 8px",border:`1px solid ${isLight?"#F47B2044":"transparent"}`}}>✏️</button>
+                  <button onClick={()=>{if(window.confirm("Excluir?"))dispatch({type:"DELETE_TRACKER",payload:item.id})}} style={{...B(isLight?"#fee2e2":"#7f1d1d",isLight?"#dc2626":"#fca5a5"),fontSize:10,padding:"4px 8px",border:`1px solid ${isLight?"#dc262644":"transparent"}`}}>✕</button>
+                </div>
+              </div>
+              {item.situacao!=="finalizada"&&item.situacao!=="ag_inspecao"&&item.situacao!=="liberada"&&(
+                <div style={{marginTop:8}}>
+                  <div style={{background:th.bg,borderRadius:99,height:4,overflow:"hidden"}}>
+                    <div style={{width:Math.min(100,(dias/PRAZO)*100)+"%",height:"100%",background:atrasada?"#dc2626":quase?"#f59e0b":"#22c55e",borderRadius:99}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+                    <span style={{fontSize:8,color:th.textMuted}}>Dia 0</span>
+                    <span style={{fontSize:8,color:atrasada?"#f87171":th.textMuted}}>Prazo: {PRAZO}d</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        // ── Card externo ──
+        const ExternoCard=({item})=>{
+          const atrasada=extVencida(item);
+          const quase=extQuaseVence(item);
+          const diffDias=item.dataRetornoPrev&&item.situacao!=="retornada"
+            ?Math.ceil((new Date(item.dataRetornoPrev+"T00:00:00")-hoje)/(1000*60*60*24))
+            :null;
+          return(
+            <div style={{background:th.surface,borderRadius:12,padding:"13px 16px",border:`2px solid ${atrasada?"#dc2626":quase?"#f59e0b":th.border}`,position:"relative"}}>
+              {atrasada&&<div style={{position:"absolute",top:-1,right:10,background:"#dc2626",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 9px",borderRadius:"0 0 7px 7px",letterSpacing:0.5}}>🚨 RETORNO ATRASADO</div>}
+              {quase&&!atrasada&&<div style={{position:"absolute",top:-1,right:10,background:"#f59e0b",color:"#000",fontSize:9,fontWeight:700,padding:"2px 9px",borderRadius:"0 0 7px 7px",letterSpacing:0.5}}>⚠️ RETORNO PRÓXIMO</div>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,color:isLight?"#7c3aed":"#c084fc",fontSize:14}}>{item.cliente||"—"}</span>
+                    {item.numOs&&<span style={{fontSize:11,color:th.textMuted}}>OS #{item.numOs}</span>}
+                  </div>
+                  {item.tipoServico&&<div style={{fontSize:12,color:isLight?"#7c3aed":"#a78bfa",fontWeight:600,marginBottom:4}}>🏭 {item.tipoServico}{item.prestador?` · ${item.prestador}`:""}</div>}
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                    <ExtBadge s={item.situacao}/>
+                    {item.situacao!=="aguardando_envio"&&<span style={{fontSize:11,color:th.textMuted}}>Envio: {fmtDate(item.dataEnvio,"pt")}</span>}
+                    {item.dataRetornoPrev&&item.situacao!=="retornada"&&(
+                      <span style={{fontSize:11,color:atrasada?"#f87171":quase?"#fbbf24":th.textMuted}}>
+                        Prev. retorno: {fmtDate(item.dataRetornoPrev,"pt")}
+                        {diffDias!==null&&(atrasada?` · ${Math.abs(diffDias)}d atrasado`:(diffDias===0?" · Hoje":(` · ${diffDias}d`)))}
+                      </span>
+                    )}
+                    {item.situacao==="retornada"&&item.dataRetorno&&<span style={{fontSize:11,color:isLight?"#15803d":"#86efac",fontWeight:600}}>Retornou: {fmtDate(item.dataRetorno,"pt")}</span>}
+                  </div>
+                  {item.obs&&<div style={{fontSize:11,color:th.textSub,fontStyle:"italic",marginTop:2}}>"{item.obs}"</div>}
+                </div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  {item.situacao==="aguardando_envio"&&<button onClick={()=>dispatch({type:"UPDATE_EXTERNO_STATUS",id:item.id,situacao:"enviada"})} style={{...B(isLight?"#ffedd5":"#422006",isLight?"#c2410c":"#fb923c"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#c2410c44":"transparent"}`}}>→ Enviada</button>}
+                  {item.situacao==="enviada"&&<button onClick={()=>dispatch({type:"UPDATE_EXTERNO_STATUS",id:item.id,situacao:"retornada",dataRetorno:new Date().toISOString().slice(0,10)})} style={{...B(isLight?"#dcfce7":"#14532d",isLight?"#15803d":"#86efac"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#15803d44":"transparent"}`}}>→ Retornada</button>}
+                  {item.situacao==="retornada"&&<button onClick={()=>dispatch({type:"UPDATE_EXTERNO_STATUS",id:item.id,situacao:"aguardando_envio"})} style={{...B(isLight?"#dbeafe":"#1e3a5f",isLight?"#1d4ed8":"#7dd3fc"),fontSize:10,padding:"4px 8px",whiteSpace:"nowrap",border:`1px solid ${isLight?"#1d4ed844":"transparent"}`}}>↺ Reabrir</button>}
+                  <button onClick={()=>dispatch({type:"OPEN_EXTERNO_MODAL",payload:{...item}})} style={{...B(isLight?"#fff3e8":"#7a3800",isLight?"#c2410c":"#F47B20"),fontSize:10,padding:"4px 8px",border:`1px solid ${isLight?"#F47B2044":"transparent"}`}}>✏️</button>
+                  <button onClick={()=>{if(window.confirm("Excluir?"))dispatch({type:"DELETE_EXTERNO",payload:item.id})}} style={{...B(isLight?"#fee2e2":"#7f1d1d",isLight?"#dc2626":"#fca5a5"),fontSize:10,padding:"4px 8px",border:`1px solid ${isLight?"#dc262644":"transparent"}`}}>✕</button>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const tab=state.trackerTab||"interno";
+
+        return(
+          <div>
+            {/* Page header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:20,fontWeight:800,color:th.text}}>🔧 Acompanhamento de OS</div>
+                <div style={{fontSize:12,color:th.textMuted,marginTop:2}}>Prazo interno: {PRAZO} dias &nbsp;·&nbsp; {state.tracker.length} internas &nbsp;·&nbsp; {state.externo.length} externas</div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                {(totalVencidas>0||extVencidas>0)&&(
+                  <div style={{display:"flex",alignItems:"center",gap:6,background:"#450a0a",border:"1px solid #dc2626",borderRadius:8,padding:"5px 12px"}}>
+                    <span>🚨</span>
+                    <span style={{color:"#f87171",fontWeight:700,fontSize:12}}>{totalVencidas+extVencidas} vencida{totalVencidas+extVencidas>1?"s":""}</span>
+                  </div>
+                )}
+                <button
+                  onClick={()=>tab==="interno"?dispatch({type:"OPEN_TRACKER_MODAL",payload:null}):dispatch({type:"OPEN_EXTERNO_MODAL",payload:null})}
+                  style={{padding:"9px 18px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0ea5e9,#38bdf8)",color:state.theme==="dark"?"#0f172a":"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                  + {tab==="interno"?"Nova OS Interna":"Nova OS Externa"}
+                </button>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{display:"flex",gap:0,marginBottom:20,background:th.surface2,borderRadius:12,padding:4,border:`1px solid ${th.border2}`,width:"fit-content"}}>
+              {[["interno","🔧 Manutenção Interna",totalVencidas],["externo","🏭 Serviço Externo",extVencidas]].map(([v,label,venc])=>(
+                <button key={v} onClick={()=>dispatch({type:"SET_TRACKER_TAB",payload:v})}
+                  style={{padding:"9px 20px",borderRadius:9,border:"none",background:tab===v?(state.theme==="dark"?th.accent:"#0ea5e9"):"transparent",color:tab===v?(state.theme==="dark"?"#0f172a":"#fff"):th.textSub,fontWeight:tab===v?700:400,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s",whiteSpace:"nowrap"}}>
+                  {label}
+                  {venc>0&&<span style={{fontSize:10,background:"#dc2626",color:"#fff",padding:"1px 6px",borderRadius:99,fontWeight:700}}>{venc}</span>}
+                </button>
+              ))}
+            </div>
+
+            {/* ── TAB INTERNO ── */}
+            {tab==="interno"&&(
+              <div>
+                {/* KPIs */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10,marginBottom:20}}>
+                  {[
+                    ["⏳","Aguardando",aguardando.length,isLight?"#1d4ed8":"#7dd3fc",isLight?"#dbeafe":"#1e3a5f44",isLight?"#1d4ed833":"#1e3a5f"],
+                    ["🔧","Em Manutenção",emManutencao.length,isLight?"#c2410c":"#fb923c",isLight?"#ffedd5":"#42200644",isLight?"#c2410c33":"#422006"],
+                    ["🔍","Ag. Inspeção",agInspecao.length,isLight?"#7c3aed":"#c084fc",isLight?"#ede9fe":"#4c1d9544",isLight?"#7c3aed33":"#4c1d95"],
+                    ["✅","Finalizadas",finalizada.length,isLight?"#15803d":"#86efac",isLight?"#dcfce7":"#14532d44",isLight?"#15803d33":"#14532d"],
+                    ["🟢","Liberadas",liberada.length,isLight?"#059669":"#34d399",isLight?"#d1fae5":"#064e3b44",isLight?"#05966933":"#064e3b"],
+                    ["🚨","Vencidas",totalVencidas,isLight?"#dc2626":"#f87171",isLight?"#fee2e2":"#450a0a44",isLight?"#dc262633":"#450a0a"],
+                  ].map(([icon,label,val,color,bg,border])=>(
+                    <div key={label} style={{background:bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${border}`,textAlign:"center"}}>
+                      <div style={{fontSize:20}}>{icon}</div>
+                      <div style={{fontSize:22,fontWeight:800,color,marginTop:3}}>{val}</div>
+                      <div style={{fontSize:10,color,opacity:isLight?1:0.8,marginTop:1,fontWeight:600}}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {state.tracker.length===0&&(
+                  <div style={{...C,textAlign:"center",padding:"40px 24px",color:th.textMuted}}>
+                    <div style={{fontSize:36,marginBottom:10}}>🔧</div>
+                    <div style={{fontWeight:600,marginBottom:4}}>Nenhuma OS interna</div>
+                    <div style={{fontSize:13}}>Clique em "+ Nova OS Interna" para começar</div>
+                  </div>
+                )}
+
+                {state.tracker.length>0&&(()=>{
+                  // ── Build client groups for ALL statuses ──
+                  const allClientes=[...new Set(state.tracker.map(x=>x.cliente||"Sem cliente"))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+
+                  // Sort each status list by entry date
+                  const sortAsc=(arr)=>[...arr].sort((a,b)=>new Date(a.dataEntrada)-new Date(b.dataEntrada));
+                  const sortDesc=(arr)=>[...arr].sort((a,b)=>new Date(b.dataEntrada)-new Date(a.dataEntrada));
+
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,alignItems:"start"}}>
+
+                      {/* COL 1 – AGUARDANDO */}
+                      <div>
+                        <ColHeader icon="⏳" title="Aguardando Manutenção" count={aguardando.length} darkColor="#7dd3fc" lightColor="#1d4ed8" darkBg="#1e3a5f33" lightBg="#dbeafe"/>
+                        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                          {aguardando.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                          {sortAsc(aguardando).map(item=><TrackerCard key={item.id} item={item}/>)}
+                        </div>
+                      </div>
+
+                      {/* COL 2 – EM MANUTENÇÃO grouped by client */}
+                      <div>
+                        <ColHeader icon="🔧" title="Em Manutenção" count={emManutencao.length} darkColor="#fb923c" lightColor="#c2410c" darkBg="#42200633" lightBg="#ffedd5"/>
+                        {emManutencao.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {allClientes.filter(c=>emManutencao.some(x=>(x.cliente||"Sem cliente")===c)).map(cliente=>{
+                          const items=sortAsc(emManutencao.filter(x=>(x.cliente||"Sem cliente")===cliente));
+                          const hasVencida=items.some(vencida);
+                          const hasQuase=items.some(quaseVence);
+                          return(
+                            <div key={cliente} style={{marginBottom:12}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:8,background:hasVencida?"#450a0a44":hasQuase?"#42200644":th.surface2,border:`1px solid ${hasVencida?"#dc262666":hasQuase?"#f59e0b66":th.border2}`,marginBottom:6}}>
+                                <span style={{fontSize:13}}>👤</span>
+                                <span style={{fontWeight:700,color:hasVencida?"#f87171":hasQuase?"#fbbf24":th.text,fontSize:13,flex:1}}>{cliente}</span>
+                                <span style={{fontSize:11,color:th.textMuted,background:th.bg,padding:"1px 8px",borderRadius:99,border:`1px solid ${th.border2}`,fontWeight:600}}>{items.length} OS</span>
+                                {hasVencida&&<span style={{fontSize:10,color:"#f87171",fontWeight:700}}>🚨</span>}
+                                {hasQuase&&!hasVencida&&<span style={{fontSize:10,color:"#fbbf24",fontWeight:700}}>⚠️</span>}
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:10,borderLeft:`2px solid #fb923c66`}}>
+                                {items.map(item=><TrackerCard key={item.id} item={item}/>)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* COL 3 – AGUARDANDO INSPEÇÃO grouped by client */}
+                      <div>
+                        <ColHeader icon="🔍" title="Aguardando Inspeção" count={agInspecao.length} darkColor="#c084fc" lightColor="#7c3aed" darkBg="#4c1d9533" lightBg="#ede9fe"/>
+                        {agInspecao.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {allClientes.filter(c=>agInspecao.some(x=>(x.cliente||"Sem cliente")===c)).map(cliente=>{
+                          const items=sortDesc(agInspecao.filter(x=>(x.cliente||"Sem cliente")===cliente));
+                          return(
+                            <div key={cliente} style={{marginBottom:12}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:8,background:th.surface2,border:`1px solid ${th.border2}`,marginBottom:6}}>
+                                <span style={{fontSize:13}}>👤</span>
+                                <span style={{fontWeight:700,color:th.text,fontSize:13,flex:1}}>{cliente}</span>
+                                <span style={{fontSize:11,color:th.textMuted,background:th.bg,padding:"1px 8px",borderRadius:99,border:`1px solid ${th.border2}`,fontWeight:600}}>{items.length} OS</span>
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:10,borderLeft:"2px solid #c084fc66"}}>
+                                {items.map(item=><TrackerCard key={item.id} item={item}/>)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* COL 4 – FINALIZADA grouped by client */}
+                      <div>
+                        <ColHeader icon="✅" title="Finalizada – Ag. Coleta" count={finalizada.length} darkColor="#86efac" lightColor="#15803d" darkBg="#14532d33" lightBg="#dcfce7"/>
+                        {finalizada.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {allClientes.filter(c=>finalizada.some(x=>(x.cliente||"Sem cliente")===c)).map(cliente=>{
+                          const items=sortDesc(finalizada.filter(x=>(x.cliente||"Sem cliente")===cliente));
+                          return(
+                            <div key={cliente} style={{marginBottom:12}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:8,background:th.surface2,border:`1px solid ${th.border2}`,marginBottom:6}}>
+                                <span style={{fontSize:13}}>👤</span>
+                                <span style={{fontWeight:700,color:th.text,fontSize:13,flex:1}}>{cliente}</span>
+                                <span style={{fontSize:11,color:th.textMuted,background:th.bg,padding:"1px 8px",borderRadius:99,border:`1px solid ${th.border2}`,fontWeight:600}}>{items.length} OS</span>
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:10,borderLeft:"2px solid #86efac66"}}>
+                                {items.map(item=><TrackerCard key={item.id} item={item}/>)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* COL 5 – LIBERADA grouped by client */}
+                      <div>
+                        <ColHeader icon="🟢" title="Liberada" count={liberada.length} darkColor="#34d399" lightColor="#059669" darkBg="#064e3b33" lightBg="#d1fae5"/>
+                        {liberada.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {allClientes.filter(c=>liberada.some(x=>(x.cliente||"Sem cliente")===c)).map(cliente=>{
+                          const items=sortDesc(liberada.filter(x=>(x.cliente||"Sem cliente")===cliente));
+                          return(
+                            <div key={cliente} style={{marginBottom:12}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:8,background:th.surface2,border:`1px solid ${th.border2}`,marginBottom:6}}>
+                                <span style={{fontSize:13}}>👤</span>
+                                <span style={{fontWeight:700,color:th.text,fontSize:13,flex:1}}>{cliente}</span>
+                                <span style={{fontSize:11,color:th.textMuted,background:th.bg,padding:"1px 8px",borderRadius:99,border:`1px solid ${th.border2}`,fontWeight:600}}>{items.length} OS</span>
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:10,borderLeft:"2px solid #34d39966"}}>
+                                {items.map(item=><TrackerCard key={item.id} item={item}/>)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── TAB EXTERNO ── */}
+            {tab==="externo"&&(
+              <div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
+                  {[
+                    ["📦","Ag. Envio",extAguardEnvio.length,isLight?"#1d4ed8":"#7dd3fc",isLight?"#dbeafe":"#1e3a5f44",isLight?"#1d4ed833":"#1e3a5f"],
+                    ["🚚","Enviadas",extEnviadas.length,isLight?"#c2410c":"#fb923c",isLight?"#ffedd5":"#4c1d9544",isLight?"#c2410c33":"#4c1d95"],
+                    ["✅","Retornadas",extRetornadas.length,isLight?"#15803d":"#86efac",isLight?"#dcfce7":"#14532d44",isLight?"#15803d33":"#14532d"],
+                    ["🚨","Atrasadas",extVencidas,isLight?"#dc2626":"#f87171",isLight?"#fee2e2":"#450a0a44",isLight?"#dc262633":"#450a0a"],
+                  ].map(([icon,label,val,color,bg,border])=>(
+                    <div key={label} style={{background:bg,borderRadius:10,padding:"12px 14px",border:`1px solid ${border}`,textAlign:"center"}}>
+                      <div style={{fontSize:20}}>{icon}</div>
+                      <div style={{fontSize:22,fontWeight:800,color,marginTop:3}}>{val}</div>
+                      <div style={{fontSize:10,color,opacity:isLight?1:0.8,marginTop:1,fontWeight:600}}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                {state.externo.length===0&&(
+                  <div style={{...C,textAlign:"center",padding:"40px 24px",color:th.textMuted}}>
+                    <div style={{fontSize:36,marginBottom:10}}>🏭</div>
+                    <div style={{fontWeight:600,marginBottom:4}}>Nenhum serviço externo</div>
+                    <div style={{fontSize:13}}>Clique em "+ Nova OS Externa" para cadastrar</div>
+                  </div>
+                )}
+                {state.externo.length>0&&(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,alignItems:"start"}}>
+                    <div>
+                      <ColHeader icon="📦" title="Aguardando Envio" count={extAguardEnvio.length} darkColor="#7dd3fc" lightColor="#1d4ed8" darkBg="#1e3a5f33" lightBg="#dbeafe"/>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {extAguardEnvio.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {[...extAguardEnvio].sort((a,b)=>new Date(a.dataEnvio)-new Date(b.dataEnvio)).map(item=><ExternoCard key={item.id} item={item}/>)}
+                      </div>
+                    </div>
+                    <div>
+                      <ColHeader icon="🚚" title="Enviadas" count={extEnviadas.length} darkColor="#fb923c" lightColor="#c2410c" darkBg="#42200633" lightBg="#ffedd5"/>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {extEnviadas.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {[...extEnviadas].sort((a,b)=>new Date(a.dataEnvio)-new Date(b.dataEnvio)).map(item=><ExternoCard key={item.id} item={item}/>)}
+                      </div>
+                    </div>
+                    <div>
+                      <ColHeader icon="✅" title="Retornadas" count={extRetornadas.length} darkColor="#86efac" lightColor="#15803d" darkBg="#14532d33" lightBg="#dcfce7"/>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {extRetornadas.length===0&&<div style={{color:th.textMuted,fontSize:12,textAlign:"center",padding:"16px 0"}}>Nenhuma</div>}
+                        {[...extRetornadas].sort((a,b)=>new Date(b.dataRetorno||b.dataEnvio)-new Date(a.dataRetorno||a.dataEnvio)).map(item=><ExternoCard key={item.id} item={item}/>)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── COLETA VIEW (DISABLED) ── */}
+      {state.view==="coleta"&&(()=>{
+        const hoje=new Date();hoje.setHours(0,0,0,0);
+        const pendentes=state.coleta.filter(x=>x.status==="pendente");
+        const retiradas=state.coleta.filter(x=>x.status==="retirada");
+        const atrasadas=state.coleta.filter(x=>x.status==="pendente"&&x.dataRetirada&&new Date(x.dataRetirada+"T00:00:00")<hoje);
+
+        const isLightC=state.theme==="light";
+        const ColBadge=({s})=>{
+          const cfg={
+            pendente:{darkBg:"#1e3a5f",lightBg:"#dbeafe",darkC:"#7dd3fc",lightC:"#1d4ed8",label:"⏳ Pendente"},
+            retirada:{darkBg:"#14532d",lightBg:"#dcfce7",darkC:"#86efac",lightC:"#15803d",label:"✅ Retirada"},
+          };
+          const k=cfg[s]||cfg.pendente;
+          return <span style={{fontSize:11,padding:"3px 10px",borderRadius:99,background:isLightC?k.lightBg:k.darkBg,color:isLightC?k.lightC:k.darkC,fontWeight:700,whiteSpace:"nowrap",border:`1px solid ${isLightC?k.lightC+"44":k.darkC+"44"}`}}>{k.label}</span>;
+        };
+
+        return(
+          <div>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:20,fontWeight:800,color:th.text}}>📦 Coleta de OS</div>
+                <div style={{fontSize:12,color:th.textMuted,marginTop:2}}>{state.coleta.length} registros · {pendentes.length} pendentes · {retiradas.length} retiradas</div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {atrasadas.length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:6,background:isLightC?"#fee2e2":"#450a0a",border:`1px solid ${isLightC?"#dc2626":"#dc2626"}`,borderRadius:8,padding:"5px 12px"}}>
+                    <span>🚨</span>
+                    <span style={{color:isLightC?"#dc2626":"#f87171",fontWeight:700,fontSize:12}}>{atrasadas.length} atrasada{atrasadas.length>1?"s":""}</span>
+                  </div>
+                )}
+                <button onClick={()=>dispatch({type:"OPEN_COLETA_MODAL",payload:null})}
+                  style={{padding:"9px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#F47B20,#FF9A45)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 2px 10px rgba(244,123,32,0.3)"}}>
+                  + Nova Coleta
+                </button>
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:24}}>
+              {[
+                ["⏳","Pendentes",pendentes.length,isLightC?"#1d4ed8":"#7dd3fc",isLightC?"#dbeafe":"#1e3a5f44",isLightC?"#1d4ed833":"#1e3a5f"],
+                ["✅","Retiradas",retiradas.length,isLightC?"#15803d":"#86efac",isLightC?"#dcfce7":"#14532d44",isLightC?"#15803d33":"#14532d"],
+                ["🚨","Atrasadas",atrasadas.length,isLightC?"#dc2626":"#f87171",isLightC?"#fee2e2":"#450a0a44",isLightC?"#dc262633":"#450a0a"],
+              ].map(([icon,label,val,color,bg,border])=>(
+                <div key={label} style={{background:bg,borderRadius:12,padding:"16px",border:`1px solid ${border}`,textAlign:"center"}}>
+                  <div style={{fontSize:24}}>{icon}</div>
+                  <div style={{fontSize:28,fontWeight:800,color,marginTop:4}}>{val}</div>
+                  <div style={{fontSize:11,color,opacity:isLightC?1:0.85,marginTop:2,fontWeight:600}}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Empty state */}
+            {state.coleta.length===0&&(
+              <div style={{background:th.surface,borderRadius:14,border:`1px solid ${th.border}`,textAlign:"center",padding:"48px 24px",color:th.textMuted}}>
+                <div style={{fontSize:40,marginBottom:12}}>📦</div>
+                <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>Nenhuma coleta registrada</div>
+                <div style={{fontSize:13}}>Clique em "+ Nova Coleta" para começar</div>
+              </div>
+            )}
+
+            {/* Table */}
+            {state.coleta.length>0&&(
+              <div style={{background:th.surface,borderRadius:14,border:`1px solid ${th.border}`,overflow:"hidden"}}>
+                {/* Table header */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 120px 100px",gap:0,background:th.surface2,borderBottom:`1px solid ${th.border2}`,padding:"10px 16px"}}>
+                  {["Cliente","Nº OS","Solicitação","Retirada Prev.","Status","Ações"].map(h=>(
+                    <div key={h} style={{fontSize:11,fontWeight:700,color:th.textMuted,textTransform:"uppercase",letterSpacing:0.5}}>{h}</div>
+                  ))}
+                </div>
+                {/* Rows — pendentes first, then retiradas */}
+                {[...pendentes,...retiradas].map((item,i)=>{
+                  const atrasada=item.status==="pendente"&&item.dataRetirada&&new Date(item.dataRetirada+"T00:00:00")<hoje;
+                  return(
+                    <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 120px 100px",gap:0,padding:"12px 16px",borderBottom:`1px solid ${th.border}`,background:atrasada?(isLightC?"#fee2e222":"#450a0a22"):i%2===0?th.surface:th.surface2,alignItems:"center"}}>
+                      <div>
+                        <div style={{fontWeight:600,color:th.text,fontSize:13}}>{item.cliente||"—"}</div>
+                        {item.obs&&<div style={{fontSize:11,color:th.textMuted,fontStyle:"italic",marginTop:2}}>"{item.obs}"</div>}
+                      </div>
+                      <div style={{fontSize:13,color:th.accent,fontWeight:600}}>{item.numOs?"#"+item.numOs:"—"}</div>
+                      <div style={{fontSize:13,color:th.textSub}}>{item.dataSolicitacao?new Date(item.dataSolicitacao+"T12:00:00").toLocaleDateString("pt-BR"):"—"}</div>
+                      <div style={{fontSize:13,color:atrasada?(isLightC?"#dc2626":"#f87171"):item.dataRetirada?th.textSub:th.textMuted,fontWeight:atrasada?700:400}}>
+                        {item.status==="retirada"&&item.dataRetirada
+                          ?<span style={{color:isLightC?"#15803d":"#86efac",fontWeight:600}}>{new Date(item.dataRetirada+"T12:00:00").toLocaleDateString("pt-BR")} ✅</span>
+                          :item.dataRetirada
+                            ?<>{new Date(item.dataRetirada+"T12:00:00").toLocaleDateString("pt-BR")}{atrasada&&<span style={{marginLeft:6,fontSize:10,color:isLightC?"#dc2626":"#f87171",fontWeight:700}}>🚨 ATRASADA</span>}</>
+                            :"—"
+                        }
+                      </div>
+                      <div><ColBadge s={item.status}/></div>
+                      <div style={{display:"flex",gap:5}}>
+                        {item.status==="pendente"&&(
+                          <button onClick={()=>dispatch({type:"UPDATE_COLETA_STATUS",id:item.id,status:"retirada",dataRetirada:new Date().toISOString().slice(0,10)})}
+                            style={{...B(isLightC?"#dcfce7":"#14532d",isLightC?"#15803d":"#86efac"),fontSize:10,padding:"4px 7px",whiteSpace:"nowrap",border:`1px solid ${isLightC?"#15803d44":"transparent"}`}}>✅</button>
+                        )}
+                        {item.status==="retirada"&&(
+                          <button onClick={()=>dispatch({type:"UPDATE_COLETA_STATUS",id:item.id,status:"pendente",dataRetirada:""})}
+                            style={{...B(isLightC?"#dbeafe":"#1e3a5f",isLightC?"#1d4ed8":"#7dd3fc"),fontSize:10,padding:"4px 7px",whiteSpace:"nowrap",border:`1px solid ${isLightC?"#1d4ed844":"transparent"}`}}>↺</button>
+                        )}
+                        <button onClick={()=>dispatch({type:"OPEN_COLETA_MODAL",payload:{...item}})} style={{...B(isLightC?"#fff3e8":"#7a3800",isLightC?"#c2410c":"#F47B20"),fontSize:10,padding:"4px 7px",border:`1px solid ${isLightC?"#F47B2044":"transparent"}`}}>✏️</button>
+                        <button onClick={()=>{if(window.confirm("Excluir esta coleta?"))dispatch({type:"DELETE_COLETA",payload:item.id})}} style={{...B(isLightC?"#fee2e2":"#7f1d1d",isLightC?"#dc2626":"#fca5a5"),fontSize:10,padding:"4px 7px",border:`1px solid ${isLightC?"#dc262644":"transparent"}`}}>✕</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* COLETA MODAL */}
+      {state.coletaModal!==null&&(()=>{
+        const item=state.coletaModal;
+        const isEdit=!!item.id;
+        const set=(field,val)=>dispatch({type:"OPEN_COLETA_MODAL",payload:{...item,[field]:val}});
+        const save=()=>{
+          if(!item.cliente.trim()){dispatch({type:"SHOW_TOAST",msg:"❌ Informe o cliente."});return;}
+          dispatch({type:"SAVE_COLETA",payload:{...item,id:item.id||genId()}});
+          dispatch({type:"SHOW_TOAST",msg:isEdit?"✅ Coleta atualizada!":"✅ Coleta adicionada!"});
+        };
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:20}}>
+            <div style={{background:th.surface,borderRadius:18,padding:28,width:440,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)"}}>
+              <div style={{fontSize:16,fontWeight:700,color:"#fbbf24",marginBottom:18}}>{isEdit?"✏️ Editar Coleta":"📦 Nova Coleta"}</div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Cliente *</label>
+                <input value={item.cliente||""} onChange={e=>set("cliente",e.target.value)} placeholder="Nome do cliente" style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Nº da OS (opcional)</label>
+                <input value={item.numOs||""} onChange={e=>set("numOs",e.target.value)} placeholder="Ex: OS-001" style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Data da Solicitação *</label>
+                  <input type="date" value={item.dataSolicitacao||""} onChange={e=>set("dataSolicitacao",e.target.value)} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Data de Retirada Prev.</label>
+                  <input type="date" value={item.dataRetirada||""} onChange={e=>set("dataRetirada",e.target.value)} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Status</label>
+                <div style={{display:"flex",gap:6}}>
+                  {[["pendente","⏳ Pendente","#1e3a5f","#7dd3fc"],["retirada","✅ Retirada","#14532d","#86efac"]].map(([v,label,bg,color])=>(
+                    <button key={v} onClick={()=>set("status",v)} style={{flex:1,padding:"9px 6px",borderRadius:8,border:`2px solid ${item.status===v?color:th.border2}`,background:item.status===v?bg:th.surface2,color:item.status===v?color:th.textMuted,cursor:"pointer",fontSize:12,fontWeight:item.status===v?700:400}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginBottom:18}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Observações</label>
+                <textarea value={item.obs||""} onChange={e=>set("obs",e.target.value)} rows={2} placeholder="Informações adicionais..." style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box",resize:"vertical"}}/>
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={save} style={{flex:1,padding:11,borderRadius:10,border:"none",background:"linear-gradient(135deg,#f59e0b,#fbbf24)",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>{isEdit?"💾 Salvar":"📦 Adicionar"}</button>
+                <button onClick={()=>dispatch({type:"CLOSE_COLETA_MODAL"})} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* TRACKER MODAL – Nova / Editar OS Interna */}
+      {state.trackerModal!==null&&(()=>{
+        const item=state.trackerModal;
+        const isEdit=!!item.id;
+        const set=(field,val)=>dispatch({type:"OPEN_TRACKER_MODAL",payload:{...item,[field]:val}});
+        const save=()=>{
+          if(!item.cliente.trim()){dispatch({type:"SHOW_TOAST",msg:"❌ Informe o cliente."});return;}
+          dispatch({type:"SAVE_TRACKER",payload:{...item,id:item.id||genId()}});
+          dispatch({type:"SHOW_TOAST",msg:isEdit?"✅ OS atualizada!":"✅ OS adicionada!"});
+        };
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:20}}>
+            <div style={{background:th.surface,borderRadius:18,padding:28,width:460,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)"}}>
+              <div style={{fontSize:16,fontWeight:700,color:th.accent,marginBottom:18}}>{isEdit?"✏️ Editar OS Interna":"➕ Nova OS Interna"}</div>
+              {[["Nº da OS (opcional)","numOs","text","Ex: OS-001"],["Cliente *","cliente","text","Nome do cliente"]].map(([lb,field,type,ph])=>(
+                <div key={field} style={{marginBottom:12}}>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>{lb}</label>
+                  <input type={type} value={item[field]||""} onChange={e=>set(field,e.target.value)} placeholder={ph} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+              ))}
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Data de Entrada *</label>
+                <input type="date" value={item.dataEntrada} onChange={e=>set("dataEntrada",e.target.value)} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Situação</label>
+                <div style={{display:"flex",gap:6}}>
+                  {[["aguardando","⏳ Aguardando","#1e3a5f","#7dd3fc"],["manutencao","🔧 Manutenção","#422006","#fb923c"],["finalizada","✅ Finalizada","#14532d","#86efac"],["ag_inspecao","🔍 Ag. Inspeção","#4c1d95","#c084fc"],["liberada","🟢 Liberada","#064e3b","#34d399"]].map(([v,label,bg,color])=>(
+                    <button key={v} onClick={()=>set("situacao",v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:`2px solid ${item.situacao===v?color:th.border2}`,background:item.situacao===v?bg:th.surface2,color:item.situacao===v?color:th.textMuted,cursor:"pointer",fontSize:10,fontWeight:item.situacao===v?700:400}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginBottom:18}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Observações</label>
+                <textarea value={item.obs||""} onChange={e=>set("obs",e.target.value)} rows={2} placeholder="Defeito, peças aguardadas..." style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box",resize:"vertical"}}/>
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={save} style={{flex:1,padding:11,borderRadius:10,border:"none",background:"linear-gradient(135deg,#0ea5e9,#38bdf8)",color:state.theme==="dark"?"#0f172a":"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>{isEdit?"💾 Salvar":"➕ Adicionar"}</button>
+                <button onClick={()=>dispatch({type:"CLOSE_TRACKER_MODAL"})} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* EXTERNO MODAL – Nova / Editar OS Externa */}
+      {state.externoModal!==null&&(()=>{
+        const item=state.externoModal;
+        const isEdit=!!item.id;
+        const set=(field,val)=>dispatch({type:"OPEN_EXTERNO_MODAL",payload:{...item,[field]:val}});
+        const save=()=>{
+          if(!item.cliente.trim()){dispatch({type:"SHOW_TOAST",msg:"❌ Informe o cliente."});return;}
+          if(!item.tipoServico.trim()){dispatch({type:"SHOW_TOAST",msg:"❌ Informe o tipo de serviço."});return;}
+          dispatch({type:"SAVE_EXTERNO",payload:{...item,id:item.id||genId()}});
+          dispatch({type:"SHOW_TOAST",msg:isEdit?"✅ Serviço externo atualizado!":"✅ Serviço externo adicionado!"});
+        };
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:20,overflowY:"auto"}}>
+            <div style={{background:th.surface,borderRadius:18,padding:28,width:500,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)"}}>
+              <div style={{fontSize:16,fontWeight:700,color:"#c084fc",marginBottom:4}}>{isEdit?"✏️ Editar Serviço Externo":"🏭 Novo Serviço Externo"}</div>
+              <div style={{fontSize:12,color:th.textMuted,marginBottom:18}}>Pintura, cromagem, usinagem e outros serviços externos</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Cliente *</label>
+                  <input value={item.cliente||""} onChange={e=>set("cliente",e.target.value)} placeholder="Nome do cliente" style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Nº da OS (opcional)</label>
+                  <input value={item.numOs||""} onChange={e=>set("numOs",e.target.value)} placeholder="Ex: OS-001" style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Tipo de Serviço *</label>
+                  <input value={item.tipoServico||""} onChange={e=>set("tipoServico",e.target.value)} placeholder="Ex: Pintura, Cromagem..." style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Prestador</label>
+                  <input value={item.prestador||""} onChange={e=>set("prestador",e.target.value)} placeholder="Nome da empresa" style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Data de Envio</label>
+                  <input type="date" value={item.dataEnvio||""} onChange={e=>set("dataEnvio",e.target.value)} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Previsão de Retorno</label>
+                  <input type="date" value={item.dataRetornoPrev||""} onChange={e=>set("dataRetornoPrev",e.target.value)} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Situação</label>
+                <div style={{display:"flex",gap:6}}>
+                  {[["aguardando_envio","📦 Ag. Envio","#1e3a5f","#7dd3fc"],["enviada","🚚 Enviada","#4c1d95","#c084fc"],["retornada","✅ Retornada","#14532d","#86efac"]].map(([v,label,bg,color])=>(
+                    <button key={v} onClick={()=>set("situacao",v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:`2px solid ${item.situacao===v?color:th.border2}`,background:item.situacao===v?bg:th.surface2,color:item.situacao===v?color:th.textMuted,cursor:"pointer",fontSize:10,fontWeight:item.situacao===v?700:400}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginBottom:18}}>
+                <label style={{fontSize:12,color:th.textMuted,display:"block",marginBottom:4}}>Observações</label>
+                <textarea value={item.obs||""} onChange={e=>set("obs",e.target.value)} rows={2} placeholder="Especificações do serviço, cor, acabamento..." style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${th.border2}`,background:th.surface2,color:th.text,fontSize:13,width:"100%",boxSizing:"border-box",resize:"vertical"}}/>
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={save} style={{flex:1,padding:11,borderRadius:10,border:"none",background:"linear-gradient(135deg,#7c3aed,#c084fc)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>{isEdit?"💾 Salvar":"🏭 Adicionar"}</button>
+                <button onClick={()=>dispatch({type:"CLOSE_EXTERNO_MODAL"})} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* FORM */}
+      {state.view==="form"&&state.form&&(
+        <div style={{...C,maxWidth:780,margin:"0 auto",padding:30,borderRadius:16}}>
+          <div style={{fontSize:17,fontWeight:700,color:th.accent,marginBottom:22}}>{state.osList.find(o=>o.id===state.form.id)?t.editOS:t.newOSTitle}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            {[[t.numOS,"os"],[t.cliente,"cliente"]].map(([lb,field])=>(
+              <div key={field}><label style={L}>{lb}</label>
+              <input type="text" value={state.form[field]} onChange={e=>dispatch({type:"UPDATE_FORM",payload:{[field]:e.target.value}})} style={I()}/></div>
+            ))}
+            <div><label style={L}>{t.tecnico}</label>
+            <div style={{marginBottom:8,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <button onClick={()=>dispatch({type:"UPDATE_FORM",payload:{tecnico:[...availableTecnicos]}})} style={{...B("#34d399","#065f46"),padding:"6px 10px",fontSize:12}}>Selecionar todos</button>
+              <button onClick={()=>dispatch({type:"UPDATE_FORM",payload:{tecnico:[]}})} style={{...B("#fca5a5","#7f1d1d"),padding:"6px 10px",fontSize:12}}>Nenhum</button>
+              <span style={{fontSize:12,color:th.textMuted,marginLeft:"auto"}}>Totais selecionados: {(state.form.tecnico||[]).length}</span>
+            </div>
+            <div style={{border:`1px solid ${th.border2}`,borderRadius:10,padding:10,maxHeight:140,overflowY:"auto"}}>
+              {availableTecnicos.map(tn=>{
+                const checked=(state.form.tecnico||[]).includes(tn);
+                return (
+                  <div key={tn} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:6}}>
+                    <label style={{display:"flex",alignItems:"center",gap:6,flex:1}}>
+                      <input type="checkbox" checked={checked} onChange={()=>{
+                        const current=state.form.tecnico||[];
+                        const next=checked?current.filter(x=>x!==tn):[...current,tn];
+                        dispatch({type:"UPDATE_FORM",payload:{tecnico:next}});
+                      }}/>
+                      {tn}
+                    </label>
+                    {checked&&(
+                      <button onClick={()=>{
+                        const next=(state.form.tecnico||[]).filter(x=>x!==tn);
+                        dispatch({type:"UPDATE_FORM",payload:{tecnico:next}});
+                      }} style={{border:"none",background:"transparent",color:th.textMuted,cursor:"pointer",fontSize:12}}>✕</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:8}}>
+              <input type="text" placeholder="Adicionar técnico" value={novoTecnico} onChange={e=>setNovoTecnico(e.target.value)} style={{...I(),flex:1}}/>
+              <button onClick={()=>{
+                const name=novoTecnico.trim();
+                if(!name)return;
+                if(!availableTecnicos.includes(name)){
+                  setAvailableTecnicos(prev=>[...prev,name]);
+                }
+                setNovoTecnico("");
+              }} style={{cursor:"pointer",padding:"8px 12px",borderRadius:10,border:"none",background:"#0ea5e9",color:"#fff"}}>
+                +
+              </button>
+            </div>
+            </div>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={L}>{t.dataInsp}</label>
+            <input type="date" value={state.form.dataInspecao||""} onChange={e=>dispatch({type:"UPDATE_FORM",payload:{dataInspecao:e.target.value}})} style={I()}/>
+            {state.form.dataInspecao&&<div style={{marginTop:5,fontSize:12,color:th.accent}}>{fmtDate(state.form.dataInspecao,state.lang)}</div>}
+          </div>
+          {/* Itens */}
+          <div style={{marginBottom:14,background:th.surface2,borderRadius:12,padding:16,border:`1px solid ${th.border2}`}}>
+            <div style={{fontWeight:600,color:th.text,marginBottom:12}}>{t.itens}</div>
+            <div style={{display:"flex",gap:14,alignItems:"flex-end",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:160}}>
+                <label style={L}>{t.qtdTotal}</label>
+                <input type="number" min="0" placeholder="0" value={state.form.quantidadeTotal||""} onChange={e=>dispatch({type:"UPDATE_FORM",payload:{quantidadeTotal:e.target.value}})} style={I()}/>
+              </div>
+              <div style={{flex:1,minWidth:160}}>
+                <label style={L}>{state.lang==="en"?"Total Non-Conformities":state.lang==="es"?"Total No Conformidades":"Total de Não Conformidades"}</label>
+                <input type="number" min="0" placeholder="0" value={state.form.totalNaoConformidades||""} onChange={e=>dispatch({type:"UPDATE_FORM",payload:{totalNaoConformidades:e.target.value}})} style={I()}/>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:2}}>
+                <div onClick={()=>dispatch({type:"TOGGLE_OK"})}
+                  style={{width:54,height:54,borderRadius:12,border:`2px solid ${state.form.okSemNC?"#22c55e":th.border2}`,background:state.form.okSemNC?"#14532d":th.surface,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:24,transition:"all 0.2s"}}>
+                  {state.form.okSemNC?"✅":"⬜"}
+                </div>
+                <span style={{fontSize:11,color:state.form.okSemNC?"#22c55e":th.textMuted,fontWeight:state.form.okSemNC?700:400,whiteSpace:"nowrap"}}>{state.form.okSemNC?t.okConforme:t.tickOK}</span>
+              </div>
+            </div>
+            {state.form.okSemNC&&(<div style={{marginTop:12,background:"#14532d",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#86efac",fontWeight:600}}>✅ {t.semNCSuffix}</div>)}
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={L}>{t.obs}</label>
+            <textarea value={state.form.observacoes||""} rows={3} placeholder={t.obsPlaceholder} onChange={e=>dispatch({type:"UPDATE_FORM",payload:{observacoes:e.target.value}})} style={{...I(),resize:"vertical"}}/>
+          </div>
+          {!state.form.okSemNC&&(
+            <div style={{marginBottom:22}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontWeight:600,color:th.text}}>{t.ncs}</span>
+                <button onClick={()=>dispatch({type:"ADD_NC"})} style={B("#7c3aed","#fff")}>{t.addNC}</button>
+              </div>
+              {state.form.naoConformidades.length===0&&<div style={{color:th.textMuted,fontSize:13,padding:"8px 0"}}>{t.nenhumaNCS}</div>}
+              {state.form.naoConformidades.map(nc=>(
+                <div key={nc.id} style={{background:th.surface2,borderRadius:10,padding:14,marginBottom:10,border:`1px solid ${th.border2}`,borderLeft:`4px solid ${SEV_COLOR[nc.severidade]}`}}>
+                  <div style={{display:"flex",gap:8,marginBottom:8}}>
+                    <input placeholder={t.tipoNC} value={nc.tipo} onChange={e=>dispatch({type:"UPDATE_NC",id:nc.id,field:"tipo",value:e.target.value})} style={{...I(),flex:1}}/>
+                    <select value={nc.severidade} onChange={e=>dispatch({type:"UPDATE_NC",id:nc.id,field:"severidade",value:e.target.value})} style={{...I(),width:"auto",color:SEV_COLOR[nc.severidade],fontWeight:600}}>
+                      <option value="baixa">🟢 {sev.baixa}</option><option value="media">🟡 {sev.media}</option><option value="alta">🔴 {sev.alta}</option>
+                    </select>
+                    <button onClick={()=>dispatch({type:"REMOVE_NC",id:nc.id})} style={B("#450a0a","#fca5a5")}>✕</button>
+                  </div>
+                  <textarea placeholder={t.descNC} value={nc.descricao} rows={2} onChange={e=>dispatch({type:"UPDATE_NC",id:nc.id,field:"descricao",value:e.target.value})} style={{...I(),resize:"vertical",marginBottom:10}}/>
+                  <div style={{marginBottom:10}}>
+                    <label style={L}>Responsável pela NC</label>
+                    <div style={{border:`1px solid ${th.border2}`,borderRadius:10,padding:10,maxHeight:100,overflowY:"auto"}}>
+                      {availableTecnicos.map(tn=>{
+                        const checked=(nc.responsaveis||[]).includes(tn);
+                        return (
+                          <label key={tn} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:4}}>
+                            <input type="checkbox" checked={checked} onChange={()=>{
+                              const current=nc.responsaveis||[];
+                              const next=checked?current.filter(x=>x!==tn):[...current,tn];
+                              dispatch({type:"UPDATE_NC",id:nc.id,field:"responsaveis",value:next});
+                            }}/>
+                            {tn}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div style={{marginTop:6,fontSize:12,color:th.textMuted}}>{(nc.responsaveis||[]).join(", ")||"Nenhum técnico selecionado"}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <input ref={el=>fileRefs.current[nc.id]=el} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFoto(nc.id,e)}/>
+                    <button onClick={()=>fileRefs.current[nc.id]&&fileRefs.current[nc.id].click()} style={B("#1e3a5f","#7dd3fc")}>📷 {nc.foto?t.trocarFoto:t.anexarFoto}</button>
+                    {nc.foto&&(<div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <img src={nc.foto} alt="NC" style={{width:52,height:52,objectFit:"cover",borderRadius:8,border:`2px solid ${th.border2}`}}/>
+                      <button onClick={()=>dispatch({type:"UPDATE_NC",id:nc.id,field:"foto",value:null})} style={B("#450a0a","#fca5a5")}>✕</button>
+                    </div>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>{const isEdit=!!state.osList.find(o=>o.id===state.form.id);dispatch({type:"SAVE_OS"});dispatch({type:"SHOW_TOAST",msg:isEdit?"✅ Inspeção atualizada!":"✅ Inspeção salva e adicionada ao Acompanhamento!"});}} style={{flex:1,padding:12,borderRadius:10,border:"none",background:`linear-gradient(135deg,${th.accentBtn},${th.accent})`,color:state.theme==="light"?"#fff":"#0f172a",fontWeight:700,fontSize:15,cursor:"pointer"}}>{t.salvar}</button>
+            <button onClick={()=>dispatch({type:"SET_VIEW",payload:"history"})} style={{padding:"12px 22px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,fontSize:15,cursor:"pointer"}}>{t.cancelar}</button>
+          </div>
+        </div>
+      )}
+
+      {/* DETAIL */}
+      {state.view==="detail"&&state.form&&(
+        <div style={{...C,maxWidth:780,margin:"0 auto",padding:30,borderRadius:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}>
+            <div><div style={{fontSize:22,fontWeight:800,color:th.accent}}>OS #{state.form.os}</div><div style={{color:th.textMuted,marginTop:4,fontSize:13}}>{t.abertura} {fmtDate(state.form.data,state.lang)}</div></div>
+            <span style={{padding:"6px 16px",borderRadius:99,fontWeight:700,fontSize:13,background:state.form.status==="conforme"?"#14532d":"#450a0a",color:state.form.status==="conforme"?"#22c55e":"#ef4444"}}>{state.form.status==="conforme"?"✅ "+t.conforme:"⚠️ "+t.naoConforme}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:18}}>
+            {[[t.cliente,state.form.cliente],[t.tecnico,Array.isArray(state.form.tecnico)?state.form.tecnico.join(", "):state.form.tecnico],[t.dataInsp.replace("📅 ",""),fmtDate(state.form.dataInspecao,state.lang)]].map(([l,v])=>(
+              <div key={l} style={{background:th.surface2,borderRadius:10,padding:14}}><div style={{fontSize:11,color:th.textMuted,marginBottom:3}}>{l}</div><div style={{fontWeight:600,color:th.text,fontSize:14}}>{v||"—"}</div></div>
+            ))}
+          </div>
+          <div style={{background:th.surface2,borderRadius:10,padding:16,marginBottom:14}}>
+            <div style={{fontWeight:600,color:th.text,marginBottom:10}}>{t.itens}</div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${th.border}`,fontSize:14}}>
+              <span style={{color:th.textSub}}>{t.qtdTotal}</span><span style={{color:th.accent,fontWeight:700}}>{state.form.quantidadeTotal||"—"}</span>
+            </div>
+            <div style={{marginTop:10}}>{state.form.okSemNC
+              ?<div style={{background:"#14532d",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#86efac",fontWeight:600}}>✅ {t.semNCSuffix}</div>
+              :<div style={{background:"#450a0a",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#fca5a5",fontWeight:600}}>⚠️ {state.form.naoConformidades.length} NC {t.naoConformes}</div>
+            }</div>
+          </div>
+          {state.form.observacoes&&(<div style={{background:th.surface2,borderRadius:10,padding:16,marginBottom:14}}>
+            <div style={{fontWeight:600,color:th.text,marginBottom:8}}>{t.obs}</div>
+            <div style={{fontSize:14,color:th.textSub,whiteSpace:"pre-wrap"}}>{state.form.observacoes}</div>
+          </div>)}
+          {state.form.naoConformidades.length>0&&(<div style={{background:th.surface2,borderRadius:10,padding:16,marginBottom:18}}>
+            <div style={{fontWeight:600,color:th.text,marginBottom:10}}>{t.ncs} ({state.form.naoConformidades.length})</div>
+            {state.form.naoConformidades.map(nc=>(
+              <div key={nc.id} style={{padding:12,background:th.surface,borderRadius:8,marginBottom:8,borderLeft:`4px solid ${SEV_COLOR[nc.severidade]}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:600,color:th.text}}>{nc.tipo||"—"}</span><span style={{fontSize:12,fontWeight:700,color:SEV_COLOR[nc.severidade]}}>● {sev[nc.severidade]}</span></div>
+                {nc.descricao&&<div style={{fontSize:13,color:th.textSub,marginBottom:8}}>{nc.descricao}</div>}
+                {nc.foto&&<img src={nc.foto} alt="NC" style={{maxWidth:200,maxHeight:140,borderRadius:8,border:`2px solid ${th.border2}`,display:"block"}}/>}
+              </div>
+            ))}
+          </div>)}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={()=>dispatch({type:"OPEN_EMAIL",payload:state.form})} style={{...B("#1e3a8a","#93c5fd"),padding:"10px 18px",borderRadius:10}}>{t.enviarEmail}</button>
+            <button onClick={()=>exportPDF(state.form,state.lang)} style={{...B("#166534","#86efac"),padding:"10px 18px",borderRadius:10,fontWeight:700}}>{t.exportPDF}</button>
+            <button onClick={()=>dispatch({type:"EDIT_OS",payload:state.form})} style={{...B(th.accentBtn,"#fff"),padding:"10px 18px",borderRadius:10}}>{t.editar}</button>
+            <button onClick={()=>dispatch({type:"SET_VIEW",payload:"history"})} style={{padding:"10px 18px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.voltar}</button>
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* FOOTER */}
+    <div style={{borderTop:`1px solid ${th.border}`,padding:"14px 24px",textAlign:"center",fontSize:12,color:th.textMuted,background:th.surface}}>
+      Developed by <span style={{color:th.accent,fontWeight:600}}>Josias Nogueira</span> &nbsp;·&nbsp; 2026
+    </div>
+
+    {/* IMPORT MODAL */}
+    {state.importModal&&<ImportModal th={th} t={t} I={I} B={B} state={state} dispatch={dispatch}/>}
+
+    {/* SAVE LOCATION MODAL */}
+    {state.saveModal&&<SaveModal th={th} t={t} I={I} state={state} dispatch={dispatch} confirmLocalSave={confirmLocalSave} saveToGoogleDrive={saveToGoogleDrive} saveToOneDrive={saveToOneDrive} DEFAULT_FILENAME={DEFAULT_FILENAME}/>}
+
+    {/* CLOUD MODAL */}
+    {state.cloudModal&&(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000}}>
+        <div style={{background:th.surface,borderRadius:18,padding:30,width:440,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.6)"}}>
+          <div style={{fontSize:18,fontWeight:700,color:th.accent,marginBottom:6}}>
+            ☁️ {state.lang==="en"?"Save to Cloud":state.lang==="es"?"Guardar en la Nube":"Salvar na Nuvem"}
+          </div>
+          <div style={{fontSize:13,color:th.textMuted,marginBottom:20,lineHeight:1.6}}>
+            {state.lang==="en"?"The file will be downloaded and your cloud storage will open automatically. Upload the file there.":
+             state.lang==="es"?"El archivo se descargará y se abrirá su almacenamiento en la nube. Suba el archivo allí.":
+             "O arquivo será baixado e seu armazenamento em nuvem abrirá automaticamente. Faça o upload do arquivo lá."}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
+            <button onClick={saveToGoogleDrive} style={{padding:"16px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#1a73e8,#34a4f4)",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+              <span style={{fontSize:24}}>🟦</span>
+              <div style={{textAlign:"left"}}>
+                <div>Google Drive</div>
+                <div style={{fontSize:11,fontWeight:400,opacity:0.85}}>{state.lang==="en"?"Download + open Drive":state.lang==="es"?"Descargar + abrir Drive":"Baixar + abrir Drive"}</div>
+              </div>
+            </button>
+            <button onClick={saveToOneDrive} style={{padding:"16px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#0078d4,#38a3f1)",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+              <span style={{fontSize:24}}>🟦</span>
+              <div style={{textAlign:"left"}}>
+                <div>Microsoft OneDrive</div>
+                <div style={{fontSize:11,fontWeight:400,opacity:0.85}}>{state.lang==="en"?"Download + open OneDrive":state.lang==="es"?"Descargar + abrir OneDrive":"Baixar + abrir OneDrive"}</div>
+              </div>
+            </button>
+          </div>
+          <button onClick={()=>dispatch({type:"CLOSE_CLOUD_MODAL"})} style={{width:"100%",padding:10,borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.cancelar}</button>
+        </div>
+      </div>
+    )}
+
+    {/* TOAST */}
+    {state.toast&&(
+      <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
+        background:state.toast.startsWith("✅")||state.toast.startsWith("📊")?"#1A3A2A":state.toast.startsWith("❌")?"#3A1A1A":"#2E2E2E",
+        color:state.toast.startsWith("✅")||state.toast.startsWith("📊")?"#34d399":state.toast.startsWith("❌")?"#fca5a5":"#F5F5F5",
+        padding:"12px 26px",borderRadius:10,fontWeight:600,fontSize:14,
+        boxShadow:"0 8px 30px rgba(0,0,0,0.45)",zIndex:2000,whiteSpace:"nowrap",
+        border:`1px solid ${state.toast.startsWith("✅")||state.toast.startsWith("📊")?"#34d39944":state.toast.startsWith("❌")?"#f8717144":"#484848"}`}}>
+        {state.toast}
+      </div>
+    )}
+
+    {/* RELATÓRIO MENSAL MODAL */}
+    {state.relModal&&(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+        <div style={{background:th.surface,borderRadius:16,padding:30,width:460,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)"}}>
+          <div style={{fontSize:18,fontWeight:700,color:th.accent,marginBottom:6}}>📋 {state.lang==="en"?"Monthly Report":state.lang==="es"?"Reporte Mensual":"Relatório Mensal"}</div>
+          <div style={{fontSize:13,color:th.textMuted,marginBottom:20}}>{state.lang==="en"?"Select period and optionally send by email":state.lang==="es"?"Seleccione el período":"Selecione o período e envie por e-mail opcionalmente"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+            <div>
+              <label style={L}>{state.lang==="en"?"Month":state.lang==="es"?"Mes":"Mês"}</label>
+              <select value={state.relMes} onChange={e=>dispatch({type:"SET_REL",field:"relMes",value:parseInt(e.target.value)})} style={I()}>
+                {Array.from({length:12},(_,i)=>(
+                  <option key={i+1} value={i+1}>{new Date(2000,i,1).toLocaleDateString(state.lang==="en"?"en-US":state.lang==="es"?"es-ES":"pt-BR",{month:"long"})}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={L}>{state.lang==="en"?"Year":state.lang==="es"?"Año":"Ano"}</label>
+              <select value={state.relAno} onChange={e=>dispatch({type:"SET_REL",field:"relAno",value:parseInt(e.target.value)})} style={I()}>
+                {Array.from({length:5},(_,i)=>new Date().getFullYear()-i).map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          </div>
+          {(()=>{
+            const osM=state.osList.filter(o=>{const d=new Date(o.createdAt);return d.getMonth()+1===state.relMes&&d.getFullYear()===state.relAno;});
+            const tIt=osM.reduce((a,o)=>a+(parseInt(o.quantidadeTotal)||0),0);
+            const tNC=osM.reduce((a,o)=>a+o.naoConformidades.length,0);
+            const tConf=osM.filter(o=>o.status==="conforme").length;
+            const taxa2=osM.length>0?Math.round((tConf/osM.length)*100):0;
+            return(
+              <div style={{background:th.surface2,borderRadius:10,padding:14,marginBottom:16,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,textAlign:"center"}}>
+                {[["OS",osM.length,th.accent],["Itens",tIt,"#a78bfa"],["NCs",tNC,"#ef4444"],["Taxa",taxa2+"%",taxa2>=80?"#22c55e":taxa2>=50?"#f59e0b":"#ef4444"]].map(([l,v,c])=>(
+                  <div key={l}><div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div><div style={{fontSize:11,color:th.textMuted}}>{l}</div></div>
+                ))}
+              </div>
+            );
+          })()}
+          <div style={{marginBottom:20}}>
+            <label style={L}>{state.lang==="en"?"Send to email (optional)":state.lang==="es"?"Enviar a email (opcional)":"Enviar por e-mail (opcional)"}</label>
+            <input type="email" placeholder={t.emailPlaceholder} value={state.relEmail} onChange={e=>dispatch({type:"SET_REL",field:"relEmail",value:e.target.value})} style={I()}/>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={handleRelatorio} style={{flex:1,padding:12,borderRadius:10,border:"none",background:"linear-gradient(135deg,#7c3aed,#a78bfa)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+              📋 {state.lang==="en"?"Generate PDF":state.lang==="es"?"Generar PDF":"Gerar PDF"}{state.relEmail?" & Enviar":""}
+            </button>
+            <button onClick={()=>dispatch({type:"CLOSE_REL"})} style={{padding:"12px 18px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.cancelar}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* EMAIL MODAL */}
+    {state.emailModal&&(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+        <div style={{background:th.surface,borderRadius:16,padding:30,width:440,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)"}}>
+          <div style={{fontSize:17,fontWeight:700,color:th.accent,marginBottom:5}}>{t.emailTitle}</div>
+          <div style={{fontSize:13,color:th.textMuted,marginBottom:18}}>OS #{state.emailModal.os.os} – {state.emailModal.os.cliente||"—"}</div>
+          <div style={{background:th.surface2,borderRadius:10,padding:14,marginBottom:18,fontSize:13,color:th.textSub,lineHeight:1.7}}>
+            <div style={{color:"#fbbf24",fontWeight:600,marginBottom:6}}>{t.comoFunciona}</div>
+            {t.passo1}<br/>{t.passo2}<br/>{t.passo3}
+          </div>
+          <label style={L}>{t.emailDest}</label>
+          <input type="email" placeholder={t.emailPlaceholder} value={state.emailModal.email} onChange={e=>dispatch({type:"SET_EMAIL",payload:e.target.value})} onKeyDown={e=>e.key==="Enter"&&sendEmail()} style={{...I(),marginBottom:18}}/>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={sendEmail} style={{flex:1,padding:11,borderRadius:10,border:"none",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>{t.enviar}</button>
+            <button onClick={()=>dispatch({type:"CLOSE_EMAIL"})} style={{padding:"11px 18px",borderRadius:10,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.cancelar}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* SETTINGS MODAL */}
+    {state.settingsOpen&&(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,overflowY:"auto",padding:"20px 0"}}>
+        <div style={{background:th.surface,borderRadius:16,padding:30,width:480,maxWidth:"95vw",border:`1px solid ${th.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)"}}>
+          <div style={{fontSize:18,fontWeight:700,color:th.accent,marginBottom:22}}>{t.settings}</div>
+          <div style={{marginBottom:20}}>
+            <label style={{...L,fontSize:13,fontWeight:600,color:th.text}}>{t.language}</label>
+            <div style={{display:"flex",gap:10}}>
+              {[["pt","🇧🇷 Português"],["en","🇺🇸 English"],["es","🇪🇸 Español"]].map(([code,name])=>(
+                <button key={code} onClick={()=>setTmpLang(code)}
+                  style={{flex:1,padding:"10px 8px",borderRadius:10,border:`2px solid ${tmpLang===code?th.accent:th.border2}`,background:tmpLang===code?(state.theme==="dark"?"#0f172a":"#e0f2fe"):th.surface2,color:tmpLang===code?th.accent:th.textSub,cursor:"pointer",fontWeight:tmpLang===code?700:400,fontSize:13}}>
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{marginBottom:20}}>
+            <label style={{...L,fontSize:13,fontWeight:600,color:th.text}}>{t.theme}</label>
+            <div style={{display:"flex",gap:10}}>
+              {[
+                ["dark","🌙 Dark","#1A1A1A","#F47B20","Fundo chumbo escuro"],
+                ["light","☀️ Light","#F5F5F5","#F47B20","Fundo branco limpo"],
+              ].map(([code,name,bg,accent,desc])=>(
+                <button key={code} onClick={()=>setTmpTheme(code)}
+                  style={{flex:1,padding:"14px 10px",borderRadius:10,border:`2px solid ${tmpTheme===code?"#F47B20":th.border2}`,background:bg,color:code==="dark"?"#F5F5F5":"#1A1A1A",cursor:"pointer",fontWeight:tmpTheme===code?700:400,fontSize:14,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                  <div style={{width:28,height:28,borderRadius:6,background:"#F47B20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+                    {code==="dark"?"🌙":"☀️"}
+                  </div>
+                  <span style={{fontWeight:700,color:code==="dark"?"#F5F5F5":"#1A1A1A"}}>{code==="dark"?"Dark":"Light"}</span>
+                  <span style={{fontSize:10,opacity:0.6,color:code==="dark"?"#F5F5F5":"#1A1A1A"}}>{desc}</span>
+                  {tmpTheme===code&&<span style={{fontSize:10,color:"#F47B20",fontWeight:700}}>✓ Ativo</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{marginBottom:20}}>
+            <label style={L}>{t.emailPadrao}</label>
+            <input type="email" placeholder="seuemail@empresa.com" value={tmpEmail} onChange={e=>setTmpEmail(e.target.value)} style={I()}/>
+          </div>
+          <div style={{marginBottom:22,background:th.surface2,borderRadius:12,padding:18,border:`1px solid ${th.border}`}}>
+            <div style={{fontWeight:700,color:th.text,marginBottom:4,fontSize:14}}>{t.dataStorage}</div>
+            <div style={{fontSize:12,color:th.textMuted,marginBottom:14,lineHeight:1.6}}>{t.storageInfo}</div>
+            <label style={L}>{t.jsonFilename}</label>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
+              <input value={tmpFilename} onChange={e=>setTmpFilename(e.target.value)} placeholder={DEFAULT_FILENAME} style={{...I(),flex:1}}/>
+              <span style={{color:th.textMuted,fontSize:13,whiteSpace:"nowrap"}}>.json</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <div onClick={()=>setTmpAutoSave(!tmpAutoSave)} style={{width:42,height:24,borderRadius:99,background:tmpAutoSave?"#F47B20":th.border2,cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+                <div style={{position:"absolute",top:3,left:tmpAutoSave?20:3,width:18,height:18,borderRadius:99,background:"#fff",transition:"left 0.2s"}}/>
+              </div>
+              <span style={{fontSize:13,color:th.textSub,cursor:"pointer"}} onClick={()=>setTmpAutoSave(!tmpAutoSave)}>{t.autoSave}</span>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>saveJSON(false)} style={{...B("#166534","#86efac"),flex:1,padding:"10px"}}>{t.saveJSON}</button>
+              <button onClick={()=>dispatch({type:"OPEN_CLOUD_MODAL"})} style={{...B("#333","#F47B20"),flex:1,padding:"10px"}}>☁️ {state.lang==="en"?"Cloud":state.lang==="es"?"Nube":"Nuvem"}</button>
+              <button onClick={()=>FS_SUPPORTED?openViaFSAPI():importRef.current&&importRef.current.click()} style={{...B("#2a2a2a","#AAAAAA"),flex:1,padding:"10px"}}>{t.loadJSON}</button>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>dispatch({type:"SAVE_SETTINGS",lang:tmpLang,theme:tmpTheme,emailPadrao:tmpEmail,jsonFilename:tmpFilename,autoSave:tmpAutoSave})}
+              style={{flex:1,padding:12,borderRadius:8,border:"none",background:"linear-gradient(135deg,#F47B20,#FF9A45)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",boxShadow:"0 4px 12px rgba(244,123,32,0.35)"}}>
+              {t.saveSettings}
+            </button>
+            <button onClick={()=>dispatch({type:"TOGGLE_SETTINGS"})} style={{padding:"12px 18px",borderRadius:8,border:`1px solid ${th.border2}`,background:"transparent",color:th.textSub,cursor:"pointer"}}>{t.close}</button>
+          </div>
+        </div>
+      </div>
+    )}
+    <ConfirmModal msg={state.confirmMsg} th={th} lang={state.lang} onConfirm={()=>{if(confirmCallbackRef.current)confirmCallbackRef.current();confirmCallbackRef.current=null;dispatch({type:"HIDE_CONFIRM"});}} onCancel={()=>{confirmCallbackRef.current=null;dispatch({type:"HIDE_CONFIRM"});}}/>
+  </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<AppWrapper/>);
+</script>
+</body>
+</html>
