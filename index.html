@@ -159,30 +159,30 @@ const SEV_LABEL_MAP={
 };
 const THEMES={
   dark:{
-    bg:"#1A1A1A",
-    surface:"#242424",
-    surface2:"#2E2E2E",
-    border:"#3A3A3A",
-    border2:"#484848",
-    text:"#F5F5F5",
-    textMuted:"#888888",
-    textSub:"#AAAAAA",
-    accent:"#F47B20",
-    accentBtn:"#F47B20",
-    header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)",
+    bg:"#0B0C10",
+    surface:"#1F232A",
+    surface2:"#292F38",
+    border:"#3A4050",
+    border2:"#515A6F",
+    text:"#E1E3E8",
+    textMuted:"#A3A8B8",
+    textSub:"#C1C7D6",
+    accent:"#0078D4",
+    accentBtn:"#106EBE",
+    header:"linear-gradient(135deg,#131924 0%,#1B2430 100%)",
   },
   light:{
-    bg:"#F5F5F5",
+    bg:"#F3F2F1",
     surface:"#FFFFFF",
-    surface2:"#F0F0F0",
-    border:"#E0E0E0",
-    border2:"#CCCCCC",
-    text:"#1A1A1A",
-    textMuted:"#888888",
-    textSub:"#555555",
-    accent:"#F47B20",
-    accentBtn:"#F47B20",
-    header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)",
+    surface2:"#F7F7F7",
+    border:"#E1DFDD",
+    border2:"#C8C6C4",
+    text:"#201F1E",
+    textMuted:"#605E5C",
+    textSub:"#8A8886",
+    accent:"#0078D4",
+    accentBtn:"#005A9E",
+    header:"linear-gradient(135deg,#E1E1E1 0%,#F3F2F1 100%)",
   },
 };
 const T={
@@ -260,7 +260,19 @@ function exportRelatMensal(mes,ano,osList,lang,emailDest){
     const barW=Math.round((pct/100)*barMaxW);
     return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0;font-weight:600">${tec}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${v.total}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center;color:#dc2626;font-weight:600">${v.nc}</td><td style="padding:8px 12px;border:1px solid #e2e8f0"><div style="display:flex;align-items:center;gap:8px"><div style="background:#e2e8f0;border-radius:99px;height:12px;width:${barMaxW}px;overflow:hidden"><div style="background:${pct>=80?"#16a34a":pct>=50?"#d97706":"#dc2626"};width:${barW}px;height:100%;border-radius:99px"></div></div><span style="font-weight:700;color:${pct>=80?"#16a34a":pct>=50?"#d97706":"#dc2626"};min-width:36px">${pct}%</span></div></td></tr>`;
   }).join("");
-  const ncListRows=osNC.map(o=>`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0;font-weight:600">#${o.os}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${o.cliente||"—"}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${Array.isArray(o.tecnico)?o.tecnico.join(", "):(o.tecnico||"—")}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${fmtDate(o.dataInspecao,lang)}</td><td style="padding:8px 12px;border:1px solid #e2e8f0">${o.naoConformidades.map(nc=>`<div style="margin-bottom:4px"><span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600">${nc.tipo||"NC"}</span><span style="font-size:11px;color:${SEV_COLOR[nc.severidade]};margin-left:4px">● ${sev[nc.severidade]}</span> <span style="font-size:11px;color:#3b82f6;margin-left:8px">(${(nc.responsaveis||[]).join(", ")||"Responsável não definido"})</span></div>`).join("")}</td></tr>`).join("");
+
+  const ncTypeMap={};
+  const ncSeverityMap={};
+  osNC.forEach(o=>{o.naoConformidades.forEach(nc=>{
+    const tipo=(nc.tipo||"Não especificado").toString().trim()||"Não especificado";
+    const sevLabel=(nc.severidade||"baixa").toString().toLowerCase();
+    ncTypeMap[tipo]=(ncTypeMap[tipo]||0)+1;
+    ncSeverityMap[sevLabel]=(ncSeverityMap[sevLabel]||0)+1;
+  });});
+
+  const ncTypeRows=Object.entries(ncTypeMap).map(([tipo,qtd])=>`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${tipo}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${qtd}</td></tr>`).join("");
+  const ncSevRows=Object.entries(ncSeverityMap).map(([sev,qtd])=>`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${sev.charAt(0).toUpperCase()+sev.slice(1)}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${qtd}</td></tr>`).join("");
+
   const win=window.open("","_blank");
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatório Mensal – ${nomeMes}</title>
   <style>body{font-family:'Segoe UI',sans-serif;padding:32px;color:#111;font-size:14px;margin:0}
@@ -286,8 +298,16 @@ function exportRelatMensal(mes,ano,osList,lang,emailDest){
   </div>
   ${Object.keys(tecMap).length>0?`<div class="sec"><div class="st">${lang==="en"?"Performance by Technician":lang==="es"?"Desempeño por Técnico":"Desempenho por Técnico"}</div>
   <table><thead><tr><th>${lang==="en"?"Technician":lang==="es"?"Técnico":"Técnico"}</th><th>${lang==="en"?"Total OS":"Total OS"}</th><th>NC</th><th>${lang==="en"?"Conformance":lang==="es"?"Conformidad":"Conformidade"}</th></tr></thead><tbody>${tecRows}</tbody></table></div>`:""}
-  ${osNC.length>0?`<div class="sec"><div class="st">${lang==="en"?"Non-Conforming WOs":lang==="es"?"OTs No Conformes":"OS com Não Conformidades"} (${osNC.length})</div>
-  <table><thead><tr><th>OS</th><th>${lang==="en"?"Client":lang==="es"?"Cliente":"Cliente"}</th><th>${lang==="en"?"Technician":lang==="es"?"Técnico":"Técnico"}</th><th>${lang==="en"?"Date":lang==="es"?"Fecha":"Data"}</th><th>NC</th></tr></thead><tbody>${ncListRows}</tbody></table></div>`
+  ${osNC.length>0?`<div class="sec"><div class="st">${lang==="en"?"Non-Conformity Summary":lang==="es"?"Resumen de No Conformidades":"Resumo de Não Conformidades"}</div>
+  <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="flex:1;min-width:220px"><strong>Total NCs:</strong> ${totalNC}</div>
+    <div style="flex:1;min-width:220px"><strong>${lang==="en"?"Total WOs Non-Conforming":lang==="es"?"Total OTs No Conformes":"Total OS Não Conformes"}:</strong> ${osNC.length}</div>
+    <div style="flex:1;min-width:220px"><strong>${lang==="en"?"Conformance Rate":lang==="es"?"Tasa de Conformidad":"Taxa de Conformidade"}:</strong> ${taxa}%</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:16px">
+    <div><div style="font-weight:700;margin-bottom:8">${lang==="en"?"NC by Type":lang==="es"?"NC por Tipo":"NC por Tipo"}</div><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:8px;border:1px solid #e2e8f0">${lang==="en"?"Type":lang==="es"?"Tipo":"Tipo"}</th><th style="text-align:center;padding:8px;border:1px solid #e2e8f0">${lang==="en"?"Count":lang==="es"?"Recuento":"Contagem"}</th></tr></thead><tbody>${ncTypeRows}</tbody></table></div>
+    <div><div style="font-weight:700;margin-bottom:8">${lang==="en"?"NC by Severity":lang==="es"?"NC por Severidad":"NC por Severidade"}</div><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:8px;border:1px solid #e2e8f0">${lang==="en"?"Severity":lang==="es"?"Severidad":"Severidade"}</th><th style="text-align:center;padding:8px;border:1px solid #e2e8f0">${lang==="en"?"Count":lang==="es"?"Recuento":"Contagem"}</th></tr></thead><tbody>${ncSevRows}</tbody></table></div>
+  </div></div>`
   :`<div class="sec"><div class="st">NC</div><p style="color:#16a34a;font-weight:600">✅ ${lang==="en"?"No non-conformities this month.":lang==="es"?"Sin no conformidades este mes.":"Nenhuma não conformidade neste mês."}</p></div>`}
   <div class="footer"><span>Berthax Surgical LTDA – ${lang==="en"?"Monthly Quality Report":lang==="es"?"Reporte Mensual de Calidad":"Relatório Mensal de Qualidade"}</span><span>${nomeMes.charAt(0).toUpperCase()+nomeMes.slice(1)}</span></div>
   <script>window.onload=function(){window.print();}<\/script></body></html>`);
@@ -440,14 +460,36 @@ function OSCard({o,dispatch,t,th,B,state,exportPDF,fmtDate,onConfirmDelete}){
 }
 
 function DashboardKPI({state,dispatch,th,t,C,fmtDate}){
-  const chartRef=useRef(null);
-  const chartInstance=useRef(null);
+  const trendChartRef=useRef(null);
+  const originChartRef=useRef(null);
+  const dispoChartRef=useRef(null);
+  const criticChartRef=useRef(null);
+  const trendChartInstance=useRef(null);
+  const originChartInstance=useRef(null);
+  const dispoChartInstance=useRef(null);
+  const criticChartInstance=useRef(null);
+
   const total=state.osList.length;
   const conformes=state.osList.filter(o=>o.status==="conforme").length;
   const naoConformes=total-conformes;
   const taxa=total>0?Math.round((conformes/total)*100):0;
   const totalPecas=state.osList.reduce((a,o)=>a+(parseInt(o.quantidadeTotal)||0),0);
   const totalNCs=state.osList.reduce((a,o)=>a+(parseInt(o.totalNaoConformidades)||o.naoConformidades.length),0);
+
+  const allNCs=state.osList.flatMap(o=>(o.naoConformidades||[]).map(nc=>({
+    ...nc,
+    os:o.os,
+    cliente:o.cliente,
+    status:o.status,
+  })));
+
+  const ncTypeCounts=allNCs.reduce((m,nc)=>{const tipo=(nc.tipo||"Não especificado").toString().trim()||"Não especificado";m[tipo]=(m[tipo]||0)+1;return m;},{});
+  const recorrentes=allNCs.filter(nc=>ncTypeCounts[(nc.tipo||"Não especificado").toString().trim()||"Não especificado"]>1).length;
+  const aleatorias=allNCs.filter(nc=>ncTypeCounts[(nc.tipo||"Não especificado").toString().trim()||"Não especificado"]===1).length;
+
+  const origemMap=state.osList.reduce((m,o)=>{const k=(o.cliente||"Sem origem").toString().trim()||"Sem origem";m[k]=(m[k]||0)+1;return m;},{ });
+  const dispoMap=state.osList.reduce((m,o)=>{const k=o.status==="nao_conforme"?"Não Conforme":"Conforme";m[k]=(m[k]||0)+1;return m;},{ });
+  const criticMap=allNCs.reduce((m,nc)=>{const k=(nc.severidade||"baixa").toString().toLowerCase();m[k]=(m[k]||0)+1;return m;},{ });
 
   const monthlyData=React.useMemo(()=>{
     const map={};
@@ -482,13 +524,13 @@ function DashboardKPI({state,dispatch,th,t,C,fmtDate}){
   },[state.osList]);
 
   useEffect(()=>{
-    if(!chartRef.current)return;
+    if(!trendChartRef.current)return;
     if(typeof Chart==="undefined")return;
-    if(chartInstance.current)chartInstance.current.destroy();
+    if(trendChartInstance.current)trendChartInstance.current.destroy();
     const isDark=state.theme==="dark";
     const gridColor=isDark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)";
     const tickColor=isDark?"#888":"#999";
-    chartInstance.current=new Chart(chartRef.current,{
+    trendChartInstance.current=new Chart(trendChartRef.current,{
       type:"line",
       data:{
         labels:monthlyData.labels,
@@ -509,8 +551,39 @@ function DashboardKPI({state,dispatch,th,t,C,fmtDate}){
         },
       },
     });
-    return()=>{if(chartInstance.current)chartInstance.current.destroy();};
+    return()=>{if(trendChartInstance.current)trendChartInstance.current.destroy();};
   },[monthlyData,state.theme]);
+
+  useEffect(()=>{
+    if(!originChartRef.current||typeof Chart==="undefined")return;
+    if(originChartInstance.current)originChartInstance.current.destroy();
+    const isDark=state.theme==="dark";
+    const gridColor=isDark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)";
+    const tickColor=isDark?"#888":"#999";
+    const data=Object.entries(origemMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+    originChartInstance.current=new Chart(originChartRef.current,{type:"bar",data:{labels:data.map(x=>x[0]),datasets:[{label:state.lang==="en"?"By Origin":state.lang==="es"?"Por Origen":"Por Origem",data:data.map(x=>x[1]),backgroundColor:["#6366f1","#f59e0b","#10b981","#ef4444","#8b5cf6","#0ea5e9"],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${ctx.parsed.y}`}}},scales:{x:{ticks:{color:tickColor},grid:{display:false}},y:{ticks:{color:tickColor},grid:{color:gridColor}}}}});
+    return()=>{if(originChartInstance.current)originChartInstance.current.destroy();};
+  },[origemMap,state.theme]);
+
+  useEffect(()=>{
+    if(!dispoChartRef.current||typeof Chart==="undefined")return;
+    if(dispoChartInstance.current)dispoChartInstance.current.destroy();
+    const isDark=state.theme==="dark";
+    const tickColor=isDark?"#888":"#999";
+    const data=Object.entries(dispoMap);
+    dispoChartInstance.current=new Chart(dispoChartRef.current,{type:"doughnut",data:{labels:data.map(x=>x[0]),datasets:[{data:data.map(x=>x[1]),backgroundColor:["#22c55e","#ef4444","#f59e0b"],borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:tickColor,font:{size:11}}}}}});
+    return()=>{if(dispoChartInstance.current)dispoChartInstance.current.destroy();};
+  },[dispoMap,state.theme]);
+
+  useEffect(()=>{
+    if(!criticChartRef.current||typeof Chart==="undefined")return;
+    if(criticChartInstance.current)criticChartInstance.current.destroy();
+    const isDark=state.theme==="dark";
+    const tickColor=isDark?"#888":"#999";
+    const data=Object.entries(criticMap);
+    criticChartInstance.current=new Chart(criticChartRef.current,{type:"pie",data:{labels:data.map(x=>x[0]),datasets:[{data:data.map(x=>x[1]),backgroundColor:["#16a34a","#d97706","#dc2626"],borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:tickColor,font:{size:11}}}}}});
+    return()=>{if(criticChartInstance.current)criticChartInstance.current.destroy();};
+  },[criticMap,state.theme]);
 
   const kpis=[
     {label:t.totalOS||"Total de OS",value:total,icon:"📋",bg:"rgba(244,123,32,0.08)",color:"#F47B20",border:"rgba(244,123,32,0.25)"},
@@ -518,12 +591,14 @@ function DashboardKPI({state,dispatch,th,t,C,fmtDate}){
     {label:t.naoConformes,value:naoConformes,icon:"⚠️",bg:"rgba(239,68,68,0.08)",color:"#ef4444",border:"rgba(239,68,68,0.25)"},
     {label:t.totalPecas,value:totalPecas.toLocaleString("pt-BR"),icon:"🔩",bg:"rgba(180,180,180,0.06)",color:"#AAAAAA",border:"rgba(180,180,180,0.2)"},
     {label:t.totalNCs,value:totalNCs,icon:"🚫",bg:"rgba(248,113,113,0.08)",color:"#f87171",border:"rgba(248,113,113,0.2)"},
+    {label:"Recorrências",value:recorrentes,icon:"🔁",bg:"rgba(59,130,246,0.08)",color:"#3b82f6",border:"rgba(59,130,246,0.35)"},
+    {label:"Aleatórias",value:aleatorias,icon:"🎲",bg:"rgba(16,185,129,0.08)",color:"#10b981",border:"rgba(16,185,129,0.35)"},
     {label:t.taxaConf,value:taxa+"%",icon:"📈",bg:taxa>=80?"rgba(34,197,94,0.08)":taxa>=50?"rgba(244,123,32,0.08)":"rgba(239,68,68,0.08)",color:taxa>=80?"#22c55e":taxa>=50?"#F47B20":"#ef4444",border:taxa>=80?"rgba(34,197,94,0.25)":taxa>=50?"rgba(244,123,32,0.25)":"rgba(239,68,68,0.25)"},
   ];
 
   return(
     <div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:14,marginBottom:20}}>
         {kpis.map(({label,value,icon,bg,color,border})=>(
           <div key={label} style={{background:bg,borderRadius:14,padding:"18px 20px",border:`1px solid ${border}`,display:"flex",flexDirection:"column",gap:4}}>
             <div style={{fontSize:22,lineHeight:1}}>{icon}</div>
@@ -551,8 +626,25 @@ function DashboardKPI({state,dispatch,th,t,C,fmtDate}){
         {state.osList.length===0?(
           <div style={{height:200,display:"flex",alignItems:"center",justifyContent:"center",color:th.textMuted,fontSize:13}}>{t.nenhumaOS}</div>
         ):(
-          <div style={{position:"relative",height:200}}><canvas ref={chartRef}/></div>
+          <div style={{position:"relative",height:200}}><canvas ref={trendChartRef}/></div>
         )}
+      </div>
+      <div style={{...C,marginBottom:20}}>
+        <div style={{fontWeight:700,color:th.text,marginBottom:14,fontSize:14}}>📈 {state.lang==="en"?"Ocorrências: Origem / Disposição / Criticidade":state.lang==="es"?"Incidencias: Origen / Disposición / Criticidad":"Ocorrências: Origem / Disposição / Criticidade"}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14}}>
+          <div style={{background:th.surface2,border:`1px solid ${th.border}`,borderRadius:12,padding:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:th.text,marginBottom:8}}>📍 {state.lang==="en"?"Occurrences by Origin":state.lang==="es"?"Ocurrencias por Origen":"Ocorrências por Origem"}</div>
+            <div style={{height:180}}><canvas ref={originChartRef}/></div>
+          </div>
+          <div style={{background:th.surface2,border:`1px solid ${th.border}`,borderRadius:12,padding:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:th.text,marginBottom:8}}>⚖️ {state.lang==="en"?"Disposition":state.lang==="es"?"Disposición":"Disposição"}</div>
+            <div style={{height:180}}><canvas ref={dispoChartRef}/></div>
+          </div>
+          <div style={{background:th.surface2,border:`1px solid ${th.border}`,borderRadius:12,padding:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:th.text,marginBottom:8}}>🔥 {state.lang==="en"?"Criticality":state.lang==="es"?"Criticidad":"Criticidade"}</div>
+            <div style={{height:180}}><canvas ref={criticChartRef}/></div>
+          </div>
+        </div>
       </div>
       {tecnicoRanking.length>0&&(
         <div style={{...C,marginBottom:20}}>
@@ -805,8 +897,8 @@ function AppWrapper(){
   
   // Temas (já estão definidos abaixo, vou usar a cópia)
   const THEMES_LOCAL={
-    dark:{bg:"#1A1A1A",surface:"#242424",surface2:"#2E2E2E",border:"#3A3A3A",border2:"#484848",text:"#F5F5F5",textMuted:"#888888",textSub:"#AAAAAA",accent:"#F47B20",accentBtn:"#F47B20",header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)"},
-    light:{bg:"#F5F5F5",surface:"#FFFFFF",surface2:"#F0F0F0",border:"#E0E0E0",border2:"#CCCCCC",text:"#1A1A1A",textMuted:"#888888",textSub:"#555555",accent:"#F47B20",accentBtn:"#F47B20",header:"linear-gradient(135deg,#2E2E2E 0%,#1A1A1A 100%)"},
+    dark:{bg:"#0B0C10",surface:"#1F232A",surface2:"#292F38",border:"#3A4050",border2:"#515A6F",text:"#E1E3E8",textMuted:"#A3A8B8",textSub:"#C1C7D6",accent:"#0078D4",accentBtn:"#106EBE",header:"linear-gradient(135deg,#131924 0%,#1B2430 100%)"},
+    light:{bg:"#F3F2F1",surface:"#FFFFFF",surface2:"#F7F7F7",border:"#E1DFDD",border2:"#C8C6C4",text:"#201F1E",textMuted:"#605E5C",textSub:"#8A8886",accent:"#0078D4",accentBtn:"#005A9E",header:"linear-gradient(135deg,#E1E1E1 0%,#F3F2F1 100%)"},
   };
   
   const thLogin=THEMES_LOCAL.dark;
@@ -1225,22 +1317,17 @@ function AppOriginal({user,onLogout,usuariosOnline}){
 
     {/* HEADER */}
     <div style={{background:"linear-gradient(135deg,#1E2038 0%,#0D0F1C 100%)",borderBottom:`1px solid #2D2F4A`,padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-      <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:0,flexShrink:0}}>
-          {/* Berthax logo mark — orange square + grey triangle */}
-          <div style={{width:38,height:38,background:"#F47B20",borderRadius:"6px 0 0 6px",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-              <polygon points="11,2 20,20 2,20" fill="#2E2E2E" opacity="0.9"/>
-              <polygon points="11,7 17,19 5,19" fill="#fff" opacity="0.25"/>
-            </svg>
-          </div>
-          <div style={{background:"#2E2E2E",borderRadius:"0 6px 6px 0",padding:"0 10px",height:38,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-            <div style={{fontSize:13,fontWeight:900,color:"#fff",letterSpacing:1.5,lineHeight:1}}>BERTHAX</div>
-            <div style={{fontSize:8,fontWeight:600,color:"rgba(255,255,255,0.5)",letterSpacing:1,lineHeight:1,marginTop:2}}>SURGICAL LTDA</div>
-          </div>
-        </div>
-        <div style={{width:1,height:28,background:"rgba(255,255,255,0.12)"}}/>
-        <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",fontWeight:500}}>{t.appSub}</div>
+      <div style={{flex:1,textAlign:"center"}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#fff",letterSpacing:0.8,lineHeight:1.1}}>Sistema de Inspeção de Qualidade</div>
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>dispatch({type:"SET_VIEW",payload:"dashboard"})}
+          style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"'Inter','Segoe UI',sans-serif",
+            background:state.view==="dashboard"?"linear-gradient(135deg,#F47B20,#FF9A45)":"rgba(255,255,255,0.07)",
+            color:state.view==="dashboard"?"#fff":"rgba(255,255,255,0.5)",
+            transition:"all 0.15s",
+            boxShadow:state.view==="dashboard"?"0 2px 12px rgba(244,123,32,0.4)":"none"}}>{t.dashboard}</button>
+        {/* outros botões seguem igual */}
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
         {["dashboard","history","tracker"].map(v=>(
